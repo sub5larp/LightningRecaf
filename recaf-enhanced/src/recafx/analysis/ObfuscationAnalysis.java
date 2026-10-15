@@ -8,6 +8,7 @@ import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
@@ -193,6 +194,7 @@ public final class ObfuscationAnalysis {
 		// --- Structure ---------------------------------------------------------------------------
 		int decryptCalls = 0, customIndy = 0, flowMethods = 0, flattened = 0, exceptionFlow = 0, junkSwitch = 0;
 		Set<String> ownStaticStringMethods = new LinkedHashSet<>();
+		Set<String> calledStaticMethods = new LinkedHashSet<>();
 		for (MethodNode m : node.methods)
 			if ((m.access & Opcodes.ACC_STATIC) != 0 && m.desc.endsWith(")Ljava/lang/String;") && onlySimpleArgs(m.desc))
 				ownStaticStringMethods.add(m.name + m.desc);
@@ -211,6 +213,9 @@ public final class ObfuscationAnalysis {
 				else if (op == Opcodes.ATHROW) athrows++;
 				else if (op == Opcodes.ACONST_NULL) nulls++;
 				else if (insn instanceof MethodInsnNode min) {
+					if (min.getOpcode() == Opcodes.INVOKESTATIC && min.owner.equals(className)
+							&& !(min.name.equals(m.name) && min.desc.equals(m.desc)))
+						calledStaticMethods.add(min.name + min.desc);
 					if (min.getOpcode() == Opcodes.INVOKESTATIC && min.owner.equals(className)
 							&& ownStaticStringMethods.contains(min.name + min.desc) && hasConstantArgs(min))
 						decryptCalls++;
@@ -259,6 +264,18 @@ public final class ObfuscationAnalysis {
 		if (junkSwitch > 0) {
 			score += 1;
 			reasons.add("junk switch tables (" + junkSwitch + ")");
+		}
+		// These encodings need no illegal names, custom attributes or large string blobs.
+		// Recognize the decoder and its use together so names alone cannot trigger recovery.
+		if (hasSkidByteStrings(node, calledStaticMethods)) {
+			score += THRESHOLD;
+			reasons.add("seeded XOR byte-array string decoder");
+			fingerprints.add("Skidfuscator-style string encryption");
+		}
+		if (hasXorStringTable(node)) {
+			score += THRESHOLD;
+			reasons.add("XOR-decoded static string table");
+			fingerprints.add("ZKM-style XOR string tables");
 		}
 
 		// --- Attributes / metadata ---------------------------------------------------------------
@@ -373,6 +390,75 @@ public final class ObfuscationAnalysis {
 			if (sort == Type.ARRAY) return false;
 		}
 		return Type.getArgumentTypes(desc).length > 0;
+	}
+
+	private static boolean hasSkidByteStrings(ClassNode node, Set<String> calledMethods) {
+		for (MethodNode decoder : node.methods) {
+			if ((decoder.access & Opcodes.ACC_STATIC) == 0
+					|| !calledMethods.contains(decoder.name + decoder.desc)
+					|| !(decoder.desc.equals("([BI)Ljava/lang/String;") || decoder.desc.equals("([B[BI)Ljava/lang/String;"))) continue;
+			if (!hasOpcodes(decoder, Opcodes.IXOR, Opcodes.IREM, Opcodes.BALOAD, Opcodes.BASTORE)
+					|| !invokes(decoder, "java/lang/Integer", "toString", "(I)Ljava/lang/String;")
+					|| !invokes(decoder, "java/lang/String", "getBytes", "()[B")
+					|| !(invokes(decoder, "java/lang/String", "<init>", "([BLjava/nio/charset/Charset;)V")
+					|| invokes(decoder, "java/lang/String", "<init>", "([BLjava/lang/String;)V"))) continue;
+			return true;
+		}
+		return false;
+	}
+
+	private static boolean hasXorStringTable(ClassNode node) {
+		MethodNode initializer = node.methods.stream().filter(m -> m.name.equals("<clinit>")).findFirst().orElse(null);
+		if (initializer == null || !hasOpcodes(initializer, Opcodes.AASTORE)) return false;
+		Set<String> tables = new LinkedHashSet<>();
+		for (FieldNode field : node.fields)
+			if ((field.access & (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL))
+					== (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)
+					&& field.desc.equals("[Ljava/lang/String;")) tables.add(field.name);
+		Set<String> initialized = new LinkedHashSet<>();
+		Set<String> initializerCalls = new LinkedHashSet<>();
+		for (AbstractInsnNode insn : initializer.instructions) {
+			if (insn instanceof FieldInsnNode field && field.getOpcode() == Opcodes.PUTSTATIC && field.owner.equals(node.name))
+				initialized.add(field.name);
+			if (insn instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKESTATIC && call.owner.equals(node.name))
+				initializerCalls.add(call.name + call.desc);
+		}
+		tables.retainAll(initialized);
+		if (tables.isEmpty()) return false;
+		boolean consumer = false;
+		for (MethodNode method : node.methods) {
+			if (method == initializer || !hasOpcodes(method, Opcodes.AALOAD)) continue;
+			for (AbstractInsnNode insn : method.instructions)
+				if (insn instanceof FieldInsnNode field && field.getOpcode() == Opcodes.GETSTATIC
+						&& field.owner.equals(node.name) && tables.contains(field.name)) { consumer = true; break; }
+			if (consumer) break;
+		}
+		if (!consumer) return false;
+		for (MethodNode decoder : node.methods) {
+			if ((decoder.access & Opcodes.ACC_STATIC) == 0 || !decoder.desc.equals("([C)Ljava/lang/String;")
+					|| !initializerCalls.contains(decoder.name + decoder.desc)) continue;
+			if (hasOpcodes(decoder, Opcodes.IXOR, Opcodes.IREM, Opcodes.CALOAD, Opcodes.CASTORE)
+					&& (hasOpcodes(decoder, Opcodes.TABLESWITCH) || hasOpcodes(decoder, Opcodes.LOOKUPSWITCH))
+					&& invokes(decoder, "java/lang/String", "<init>", "([C)V")
+					&& invokes(decoder, "java/lang/String", "intern", "()Ljava/lang/String;")) return true;
+		}
+		return false;
+	}
+
+	private static boolean invokes(MethodNode method, String owner, String name, String desc) {
+		for (AbstractInsnNode insn : method.instructions)
+			if (insn instanceof MethodInsnNode call && call.owner.equals(owner) && call.name.equals(name) && call.desc.equals(desc)) return true;
+		return false;
+	}
+
+	private static boolean hasOpcodes(MethodNode method, int... opcodes) {
+		for (int opcode : opcodes) {
+			boolean found = false;
+			for (AbstractInsnNode insn : method.instructions)
+				if (insn.getOpcode() == opcode) { found = true; break; }
+			if (!found) return false;
+		}
+		return true;
 	}
 
 	private static boolean hasConstantArgs(MethodInsnNode min) {

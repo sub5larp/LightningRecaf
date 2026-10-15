@@ -22,6 +22,8 @@ import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.text.Text;
+import javafx.scene.text.TextFlow;
 import javafx.util.StringConverter;
 import org.kordamp.ikonli.carbonicons.CarbonIcons;
 import recafx.util.Fx;
@@ -29,6 +31,7 @@ import software.coley.observables.ObservableBoolean;
 import software.coley.observables.ObservableInteger;
 import software.coley.observables.ObservableString;
 import software.coley.recaf.ui.control.FontIconView;
+import software.coley.recaf.ui.LanguageStylesheets;
 import software.coley.recaf.ui.window.RecafScene;
 import software.coley.recaf.ui.window.RecafStage;
 import software.coley.recaf.util.FxThreadUtil;
@@ -83,7 +86,6 @@ public class ThemeChooserWindow extends RecafStage {
 		grid.addRow(row++, new Label("Color B (base)"), colorPicker(config.getColorB()));
 		grid.addRow(row++, new Label("Accent"), colorPicker(config.getAccent()));
 		grid.addRow(row++, new Label("Grayscale icons (keep red/green indicators)"), checkBox(config.getGrayscaleIcons()));
-		grid.addRow(row++, new Label("Grayscale code colors"), checkBox(config.getGrayscaleSyntax()));
 		grid.addRow(row++, new Label("Reduce motion / freeze animated background"), checkBox(config.getReduceMotion()));
 		grid.addRow(row++, new Label("Frosted glass panels"), checkBox(config.getGlass()));
 		grid.addRow(row++, new Label("Panel opacity"), slider(config.getGlassOpacity(), 15, 100, "%"));
@@ -95,7 +97,7 @@ public class ThemeChooserWindow extends RecafStage {
 		grid.addRow(row++, new Label("Background blur"), slider(config.getBlur(), 0, 30, "px"));
 
 		Button reset = new Button("Reset to LightningRecaf", new FontIconView(CarbonIcons.RESET));
-		reset.setOnAction(e -> { config.applyPreset(ThemeConfig.Preset.LIGHTNING); config.getGrayscaleIcons().setValue(true); config.getGrayscaleSyntax().setValue(true); });
+		reset.setOnAction(e -> { config.applyPreset(ThemeConfig.Preset.LIGHTNING); config.getGrayscaleIcons().setValue(true); config.getCodePalette().setValue(CodePalette.GRAYSCALE); });
 		Button close = new Button("Close", new FontIconView(CarbonIcons.CHECKMARK));
 		close.setOnAction(e -> close());
 		Region spacer = new Region();
@@ -103,7 +105,7 @@ public class ThemeChooserWindow extends RecafStage {
 		HBox buttons = new HBox(8, reset, spacer, close);
 		buttons.setPadding(new Insets(12, 0, 0, 0));
 
-		VBox content = new VBox(6, title, presets, new Separator(), new Label("Fine tuning (changes apply instantly and are saved with your config)"), grid, buttons);
+		VBox content = new VBox(6, codeColors(), new Separator(), title, presets, new Separator(), new Label("Fine tuning (changes apply instantly and are saved with your config)"), grid, buttons);
 		ScrollPane scroll = new ScrollPane(content);
 		scroll.setFitToWidth(true);
 		scroll.getStyleClass().add("dark-scroll-pane");
@@ -114,6 +116,34 @@ public class ThemeChooserWindow extends RecafStage {
 		setOnShown(event -> FxThreadUtil.run(() -> { scroll.setVvalue(0); root.requestFocus(); }));
 		config.getPreset().addChangeListener((ob, old, cur) -> FxThreadUtil.run(this::syncTiles));
 		syncTiles();
+	}
+
+	private VBox codeColors() {
+		Label title = new Label("Code colors");
+		title.getStyleClass().add("title-3");
+		ComboBox<CodePalette> palettes = new ComboBox<>();
+		palettes.setId("recafx-code-palette");
+		palettes.getItems().addAll(CodePalette.values());
+		palettes.setValue(config.getCodePalette().getValue());
+		palettes.valueProperty().addListener((ob, old, current) -> {
+			if (current != null) config.getCodePalette().setValue(current);
+		});
+		config.getCodePalette().addChangeListener((ob, old, current) -> FxThreadUtil.run(() -> palettes.setValue(current)));
+		TextFlow preview = new TextFlow(
+				token("// Syntax colors stay separate from the window theme.\n", "comment-line"),
+				token("@Override\n", "annotation"), token("public ", "keyword"), token("String message() {\n    ", "text"),
+				token("return ", "keyword"), token("\"LightningRecaf\"", "string"), token(" + ", "text"),
+				token("42", "constant"), token(";\n}", "text"));
+		preview.getStyleClass().addAll("code-area", "recafx-code-preview");
+		preview.getStylesheets().add(LanguageStylesheets.getJavaStylesheet());
+		preview.setPadding(new Insets(12));
+		return new VBox(8, new HBox(16, title, palettes), preview);
+	}
+
+	private static Text token(String content, String style) {
+		Text text = new Text(content);
+		text.getStyleClass().addAll("text", style);
+		return text;
 	}
 
 	private VBox tile(ThemeConfig.Preset preset) {

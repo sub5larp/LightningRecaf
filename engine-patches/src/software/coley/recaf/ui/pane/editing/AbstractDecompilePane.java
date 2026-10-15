@@ -428,14 +428,14 @@ public class AbstractDecompilePane extends BorderPane implements ClassNavigable,
 					if (throwable != null) {
 						decompileOutputErrored.setValue(true);
 						String trace = StringUtil.traceToString(throwable);
-						editor.setText("/*\nUncaught exception when decompiling:\n" + trace + "\n*/");
+						setDecompileText("/*\nUncaught exception when decompiling:\n" + trace + "\n*/");
 						return;
 					}
 
 					// Handle decompilation result
 					if (result == null) {
 						decompileOutputErrored.setValue(true);
-						editor.setText("// The decompiler returned no result. Select another decompiler to retry.");
+						setDecompileText("// The decompiler returned no result. Select another decompiler to retry.");
 						return;
 					}
 					String text = result.getText();
@@ -445,15 +445,15 @@ public class AbstractDecompilePane extends BorderPane implements ClassNavigable,
 					if (Objects.equals(text, editor.getText()))
 						return; // Skip if existing text is the same
 					switch (resultType) {
-						case SUCCESS -> editor.setText(text);
-						case SKIPPED -> editor.setText(text == null ? "// Decompilation skipped" : text);
+						case SUCCESS -> setDecompileText(text);
+						case SKIPPED -> setDecompileText(text == null ? "// Decompilation skipped" : text);
 						case FAILURE -> {
 							Throwable exception = result.getException();
 							if (exception != null) {
 								String trace = StringUtil.traceToString(exception);
-								editor.setText("/*\nDecompile failed:\n" + trace + "\n*/");
+								setDecompileText("/*\nDecompile failed:\n" + trace + "\n*/");
 							} else {
-								editor.setText("/*\nDecompile failed, but no trace was attached.\n*/");
+								setDecompileText("/*\nDecompile failed, but no trace was attached.\n*/");
 							}
 						}
 					}
@@ -467,8 +467,17 @@ public class AbstractDecompilePane extends BorderPane implements ClassNavigable,
 		} catch (Throwable failure) {
 			cancelRequest();
 			decompileOutputErrored.setValue(true);
-			editor.setText("/* Could not start decompilation:\n" + StringUtil.traceToString(failure) + "\n*/");
+			setDecompileText("/* Could not start decompilation:\n" + StringUtil.traceToString(failure) + "\n*/");
 		}
+	}
+
+	private void setDecompileText(String text) {
+		if (Objects.equals(text, editor.getText())) return;
+		// A decompilation replaces the whole document. Old fold offsets belong to different bytecode;
+		// the AST parse below will populate fresh regions for the replacement text.
+		if (editor.getComponent(software.coley.recaf.ui.control.richtext.folding.FoldTracking.COMPONENT_KEY)
+				instanceof software.coley.recaf.ui.control.richtext.folding.FoldTracking folds) folds.clear();
+		editor.setText(text);
 	}
 
 	/**
@@ -510,7 +519,7 @@ public class AbstractDecompilePane extends BorderPane implements ClassNavigable,
 			cancel.setOnAction(e -> {
 				cancelRequest();
 				if (path == null || renderedClass != path.getValue() || editor.getText().isBlank())
-					editor.setText("// Decompilation cancelled. Reopen this class or change decompiler to retry.");
+					setDecompileText("// Decompilation cancelled. Reopen this class or change decompiler to retry.");
 			});
 			title.getStyleClass().add(Styles.TITLE_3);
 			text.getStyleClass().add(Styles.TEXT_SUBTLE);

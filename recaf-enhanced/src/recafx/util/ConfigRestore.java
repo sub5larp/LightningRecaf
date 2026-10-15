@@ -31,11 +31,19 @@ public final class ConfigRestore {
 			Gson gson = gsonProvider.getGson();
 			JsonObject json = gson.fromJson(Files.readString(path), JsonObject.class);
 			if (json == null) return;
+			if (container instanceof recafx.theme.ThemeConfig && !json.has("code-palette")) {
+				// Keep the user's previous editor colors when upgrading the old on/off setting.
+				JsonElement oldPreset = json.get("preset"), oldSyntax = json.get("grayscale-syntax");
+				boolean original = (oldPreset != null && oldPreset.isJsonPrimitive() && "RECAF_DEFAULT".equals(oldPreset.getAsString()))
+						|| (oldSyntax != null && oldSyntax.isJsonPrimitive() && oldSyntax.getAsJsonPrimitive().isBoolean() && !oldSyntax.getAsBoolean());
+				json.addProperty("code-palette", original ? "RECAF_DEFAULT" : "GRAYSCALE");
+			}
 			for (ConfigValue value : container.getValues().values()) {
 				JsonElement element = json.get(value.getId());
 				if (element == null || element.isJsonNull()) continue;
 				try {
-					value.setValue(gson.fromJson(element, value.getType()));
+					Object restored = gson.fromJson(element, value.getType());
+					if (restored != null) value.setValue(restored);
 				} catch (Exception ex) {
 					logger.warn("Could not restore {}.{}", container.getGroupAndId(), value.getId(), ex);
 				}

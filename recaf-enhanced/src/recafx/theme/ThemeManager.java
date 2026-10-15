@@ -93,7 +93,7 @@ public class ThemeManager {
 		config.getColorB().addChangeListener((ob, old, cur) -> schedule.run());
 		config.getAccent().addChangeListener((ob, old, cur) -> schedule.run());
 		config.getGrayscaleIcons().addChangeListener((ob, old, cur) -> schedule.run());
-		config.getGrayscaleSyntax().addChangeListener((ob, old, cur) -> schedule.run());
+		config.getCodePalette().addChangeListener((ob, old, cur) -> schedule.run());
 		config.getReduceMotion().addChangeListener((ob, old, cur) -> schedule.run());
 		config.getGlass().addChangeListener((ob, old, cur) -> schedule.run());
 		config.getGlassOpacity().addChangeListener((ob, old, cur) -> schedule.run());
@@ -145,7 +145,6 @@ public class ThemeManager {
 	private void attachScene(Scene scene) {
 		if (scene == null || iconScopes.containsKey(scene)) return;
 		MonochromeIcons scope = new MonochromeIcons();
-		scope.setGrayscaleSyntax(config.getGrayscaleSyntax().getValue() && config.getPreset().getValue() != ThemeConfig.Preset.RECAF_DEFAULT);
 		scope.setEnabled(config.getGrayscaleIcons().getValue() && config.getPreset().getValue() != ThemeConfig.Preset.RECAF_DEFAULT);
 		scope.watch(scene.getRoot());
 		iconScopes.put(scene, scope);
@@ -174,7 +173,8 @@ public class ThemeManager {
 			canvas.setVisible(!defaultTheme);
 			canvas.configure(background, a, b, accent, config.getReduceMotion().getValue() ? 0 : config.getAnimationSpeed().getValue() / 100.0,
 					config.getDensity().getValue() / 100.0, config.getBlur().getValue());
-			String css = defaultTheme ? "" : buildCss(background, a, b, accent);
+			String css = (defaultTheme ? "" : buildCss(background, a, b, accent))
+					+ config.getCodePalette().getValue().stylesheet();
 			Path sheet = directories.getTempDirectory().resolve("recafx-theme-" + (++version) + ".css");
 			Files.createDirectories(sheet.getParent());
 			Files.writeString(sheet, css, StandardCharsets.UTF_8);
@@ -187,7 +187,6 @@ public class ThemeManager {
 			sheetPath = sheet;
 			currentSheet = uri;
 			iconScopes.values().forEach(scope -> scope.setEnabled(config.getGrayscaleIcons().getValue() && !defaultTheme));
-			iconScopes.values().forEach(scope -> scope.setGrayscaleSyntax(config.getGrayscaleSyntax().getValue() && !defaultTheme));
 			boolean round = config.getWindowCorners().getValue() && config.getRounded().getValue() && !defaultTheme;
 			for (Stage stage : windowManager.getActiveWindows())
 				NativeWindow.setRoundedCorners(stage, round || defaultTheme || !config.getWindowCorners().getValue());
@@ -235,12 +234,6 @@ public class ThemeManager {
 		css.append("  -color-chart-1: ").append(Fx.hex(accent)).append(";\n");
 		css.append("}\n");
 		css.append(".button:default, .button:default .ikonli-font-icon { -fx-text-fill: #101010; -fx-icon-color: #101010; }\n");
-		if (config.getGrayscaleSyntax().getValue()) {
-			css.append(".code-area .text { -fx-fill: #dedede; }\n");
-			css.append(".code-area .keyword { -fx-fill: #ffffff; -fx-font-weight: bold; }\n");
-			css.append(".code-area .comment { -fx-fill: #999999; -fx-font-style: italic; }\n");
-			css.append(".code-area .string, .code-area .number { -fx-fill: #bbbbbb; }\n");
-		}
 		// Main window: let the canvas show through.
 		css.append(".recafx-main { -fx-background-color: transparent; }\n");
 		css.append(".recafx-main > .bg-inset { -fx-background-color: transparent !important; }\n");

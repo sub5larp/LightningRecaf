@@ -52,7 +52,7 @@ public class ThemeConfig extends BasicConfigContainer {
 	private final ObservableString colorB = new ObservableString("#161616");
 	private final ObservableString accent = new ObservableString("#eeeeee");
 	private final ObservableBoolean grayscaleIcons = new ObservableBoolean(true);
-	private final ObservableBoolean grayscaleSyntax = new ObservableBoolean(true);
+	private final ObservableObject<CodePalette> codePalette = new ObservableObject<>(CodePalette.GRAYSCALE);
 	private final ObservableBoolean reduceMotion = new ObservableBoolean(false);
 	private final ObservableBoolean glass = new ObservableBoolean(false);
 	private final ObservableInteger glassOpacity = new ObservableInteger(70);
@@ -71,7 +71,7 @@ public class ThemeConfig extends BasicConfigContainer {
 		addValue(new BasicConfigValue<>("color-b", String.class, colorB));
 		addValue(new BasicConfigValue<>("accent", String.class, accent));
 		addValue(new BasicConfigValue<>("grayscale-icons", boolean.class, grayscaleIcons));
-		addValue(new BasicConfigValue<>("grayscale-syntax", boolean.class, grayscaleSyntax));
+		addValue(new BasicConfigValue<>("code-palette", CodePalette.class, codePalette));
 		addValue(new BasicConfigValue<>("reduce-motion", boolean.class, reduceMotion));
 		addValue(new BasicConfigValue<>("glass", boolean.class, glass));
 		addValue(new BasicConfigValue<>("glass-opacity", int.class, glassOpacity));
@@ -126,7 +126,7 @@ public class ThemeConfig extends BasicConfigContainer {
 
 	public ObservableString getAccent() {return accent;}
 	public ObservableBoolean getGrayscaleIcons() {return grayscaleIcons;}
-	public ObservableBoolean getGrayscaleSyntax() {return grayscaleSyntax;}
+	public ObservableObject<CodePalette> getCodePalette() {return codePalette;}
 	public ObservableBoolean getReduceMotion() {return reduceMotion;}
 
 	public ObservableBoolean getGlass() {return glass;}

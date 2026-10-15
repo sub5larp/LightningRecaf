@@ -90,7 +90,7 @@ public class AutoDeobfuscator {
 	private final ThreadLocal<Long> runTicket = new ThreadLocal<>();
 	private volatile String lastReport = "No analysis run yet.";
 	public String getLastReport() { return lastReport; }
-	public void onWorkspaceClosed() {
+	public synchronized void onWorkspaceClosed() {
 		cancelRequested = true;
 		activeWorkspace = null;
 		generation.incrementAndGet();
@@ -122,7 +122,8 @@ public class AutoDeobfuscator {
 	public void cancel() {cancelRequested = true;}
 
 	/** Entry point when a workspace is opened: analyze, then (if configured) deobfuscate automatically. */
-	public void onWorkspaceOpened(Workspace workspace) {
+	public synchronized void onWorkspaceOpened(Workspace workspace) {
+		if (activeWorkspace == workspace) return;
 		long ticket = generation.incrementAndGet();
 		activeWorkspace = workspace;
 		lastReport = "Analysis pending for the current workspace.";
@@ -133,6 +134,7 @@ public class AutoDeobfuscator {
 				cancelRequested = false;
 				viewState.begin(workspace);
 				report(Phase.ANALYZING, "Analyzing classes...", -1);
+				if (generation.get() != ticket || cancelRequested) return;
 				ObfuscationAnalysis.Report report = analysis.analyze(workspace).get();
 				if (generation.get() != ticket || cancelRequested) return;
 				if (!config.getAutoDeobfuscate().getValue()) {
@@ -149,15 +151,19 @@ public class AutoDeobfuscator {
 					return;
 				}
 				if (config.getOnlyWhenDetected().getValue() && !report.anyObfuscated()) {
-					lastReport = "No obfuscation indicators detected. Use Deobfuscate now to attempt generic normalization.";
-					report(Phase.SKIPPED, "No obfuscation detected", -1);
+					lastReport = "Automatic recovery skipped because 'Only when detected' is enabled and no pattern passed detection. " +
+							"Use Deobfuscate now to attempt recovery anyway.";
+					report(Phase.SKIPPED, "Automatic recovery skipped: no detection match. Use Deobfuscate now", -1);
 					return;
 				}
 				runPipeline(workspace, report);
 			} catch (Throwable t) {
 				logger.error("Automatic deobfuscation failed", t);
 				report(Phase.FAILED, "Deobfuscation failed: " + t.getMessage(), -1);
-			} finally { runTicket.remove(); }
+			} finally {
+				finishCancellation(workspace);
+				runTicket.remove();
+			}
 		});
 	}
 
@@ -165,15 +171,21 @@ public class AutoDeobfuscator {
 	public CompletableFuture<Void> runNow(Workspace workspace) {
 		CompletableFuture<Void> future = new CompletableFuture<>();
 		if (progress.running() || !manualQueued.compareAndSet(false, true)) {
+			Progress current = progress;
+			logger.info("Manual recovery requested while another recovery job is running");
+			if (current.running()) report(current.phase(), "Recovery is already running; wait for it to finish or cancel it", current.fraction());
 			future.completeExceptionally(new IllegalStateException("An analysis is already running"));
 			return future;
 		}
+		logger.info("Manual deobfuscation requested");
 		long ticket = generation.get();
 		executor.execute(() -> {
 			runTicket.set(ticket);
 			try {
 				if (generation.get() != ticket || activeWorkspace != workspace) { future.cancel(false); return; }
 				cancelRequested = false;
+				report(Phase.ANALYZING, "Preparing manual deobfuscation...", -1);
+				if (generation.get() != ticket || cancelRequested) { future.cancel(false); return; }
 				if (viewState.getState() == null || viewState.getState().getWorkspace() != workspace)
 					viewState.begin(workspace);
 				ObfuscationAnalysis.Report report = analysis.isComplete() && analysis.getWorkspace() == workspace
@@ -188,11 +200,21 @@ public class AutoDeobfuscator {
 				report(Phase.FAILED, "Deobfuscation failed: " + t.getMessage(), -1);
 				future.completeExceptionally(t);
 			} finally {
+				finishCancellation(workspace);
 				runTicket.remove();
 				manualQueued.set(false);
 			}
 		});
 		return future;
+	}
+
+	private void finishCancellation(Workspace workspace) {
+		Long ticket = runTicket.get();
+		if (ticket != null && ticket.longValue() != generation.get()) return;
+		if (activeWorkspace == workspace && cancelRequested && progress.running()) {
+			lastReport = "Recovery cancelled. Use Deobfuscate now to retry.";
+			report(Phase.CANCELLED, "Recovery cancelled; ready to run again", -1);
+		}
 	}
 
 	private void runPipeline(Workspace workspace, ObfuscationAnalysis.Report report) throws Exception {

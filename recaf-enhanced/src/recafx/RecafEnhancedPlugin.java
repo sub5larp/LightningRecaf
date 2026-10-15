@@ -221,6 +221,9 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 			});
 		};
 		workspaceManager.addWorkspaceCloseListener(closeListener);
+		// Plugin activation can happen after a file is already open. Catch up with that workspace;
+		// repeated open notifications are coalesced by the recovery service.
+		if (workspaceManager.hasCurrentWorkspace()) deobfuscator.onWorkspaceOpened(workspaceManager.getCurrent());
 
 		// The UI does not exist yet (plugins are enabled before JavaFX starts), so wait for the main window.
 		waitForMainWindow(0);
@@ -383,7 +386,7 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 				map.put(t + ".color-b", "Background color B / panel base");
 				map.put(t + ".accent", "Accent color");
 				map.put(t + ".grayscale-icons", "Grayscale icons");
-				map.put(t + ".grayscale-syntax", "Grayscale code colors");
+				map.put(t + ".code-palette", "Code colors");
 				map.put(t + ".reduce-motion", "Reduce motion");
 				map.put(t + ".glass", "Frosted glass panels");
 				map.put(t + ".glass-opacity", "Panel opacity (%)");
