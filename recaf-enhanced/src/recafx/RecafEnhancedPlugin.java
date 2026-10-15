@@ -294,10 +294,11 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 			editorFlagger = new EditorFlagger(analysis, config);
 			navigationManagerProvider.get().addNavigableAddListener(editorFlagger);
 			navigationManagerProvider.get().addNavigableRemoveListener(editorFlagger);
-			analysis.addListener(() -> {
+			analysis.addListener(new recafx.util.FxCoalescer(() -> {
+				if (disabled) return;
 				editorFlagger.refreshAll();
-				FxThreadUtil.run(this::refreshTrees);
-			});
+				refreshTrees();
+			}));
 
 			// Explorer tabs
 			explorerTabs = new ExplorerTabs(dockingManagerProvider.get(), cellConfigurationProvider.get(),

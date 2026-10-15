@@ -209,6 +209,8 @@ public class ThemeManager {
 		Color border = base.interpolate(Color.WHITE, 0.22);
 		Color borderMuted = base.interpolate(Color.WHITE, 0.12);
 		Color borderSubtle = base.interpolate(Color.WHITE, 0.08);
+		String selection = Fx.hex(base.interpolate(accent, 0.16));
+		String selectionBorder = Fx.hex(base.interpolate(accent, 0.30));
 		int radius = config.getRounded().getValue() ? Math.max(0, config.getCornerRadius().getValue()) : 0;
 		StringBuilder css = new StringBuilder();
 		css.append(".root {\n");
@@ -233,6 +235,15 @@ public class ThemeManager {
 		}
 		css.append("  -color-chart-1: ").append(Fx.hex(accent)).append(";\n");
 		css.append("}\n");
+		css.append(".root { -recafx-selection: ").append(selection).append("; -recafx-selection-border: ").append(selectionBorder).append("; }\n");
+		css.append(".root .code-area .main-selection { -fx-fill: -recafx-selection; }\n");
+		css.append(".root .code-area .paragraph-box:has-caret { -fx-background-color: ").append(Fx.hex(base.interpolate(Color.WHITE, 0.04))).append("; }\n");
+		css.append(".root .text-input { -fx-highlight-fill: -recafx-selection; -fx-highlight-text-fill: #eeeeee; }\n");
+		css.append(".root .toggle-button:selected, .root .toggle-button:selected:hover { -fx-background-color: -recafx-selection-border, -recafx-selection; -fx-text-fill: #eeeeee; -color-button-fg: #eeeeee; -color-button-fg-selected: #eeeeee; }\n");
+		css.append(".root .list-view, .root .tree-view, .root .table-view, .root .tree-table-view { -color-cell-bg-selected: -recafx-selection; -color-cell-bg-selected-focused: -recafx-selection; -color-cell-fg-selected: #eeeeee; -color-cell-fg-selected-focused: #eeeeee; }\n");
+		css.append(".root .menu-item:focused, .root .menu-item:hover, .root .menu-bar > .container > .menu-button:hover, .root .menu-bar > .container > .menu-button:showing { -fx-background-color: -recafx-selection; }\n");
+		css.append(".root .header-pane:active .header:selected { -fx-background-color: -recafx-selection-border, -color-bg-default; }\n");
+		css.append(".root .tab-pane { -color-tab-border-selected: -recafx-selection-border; }\n");
 		css.append(".button:default, .button:default .ikonli-font-icon { -fx-text-fill: #101010; -fx-icon-color: #101010; }\n");
 		// Main window: let the canvas show through.
 		css.append(".recafx-main { -fx-background-color: transparent; }\n");

@@ -12,11 +12,15 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.IdentityHashMap;
+import java.util.ArrayDeque;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -40,6 +44,16 @@ public class AnalysisService {
 	private volatile Workspace workspace;
 	private volatile boolean complete;
 	private long generation;
+	private final Map<JvmClassInfo, NetworkAnalysis.ClassFindings> networkCache = new IdentityHashMap<>();
+	private final ArrayDeque<JvmClassInfo> cacheOrder = new ArrayDeque<>();
+	private static final int MAX_CACHED_CLASSES = 8192;
+	private final ScheduledExecutorService notifications = Executors.newSingleThreadScheduledExecutor(r -> {
+		Thread thread = new Thread(r, "recafx-analysis-notifications");
+		thread.setDaemon(true);
+		return thread;
+	});
+	private boolean notificationPending;
+	private boolean closed;
 	private final Map<String, JvmClassInfo> latestNetworkInput = new ConcurrentHashMap<>();
 	private final ResourceJvmClassListener classListener = new ResourceJvmClassListener() {
 		@Override
@@ -60,7 +74,11 @@ public class AnalysisService {
 
 		@Override
 		public void onRemoveClass(WorkspaceResource resource, JvmClassBundle bundle, JvmClassInfo cls) {
-			network.remove(cls.getName());
+			synchronized (AnalysisService.this) {
+				latestNetworkInput.remove(cls.getName());
+				network.remove(cls.getName());
+			}
+			notifyListeners();
 		}
 	};
 
@@ -117,6 +135,8 @@ public class AnalysisService {
 			} catch (Throwable ignored) {}
 		workspace = null;
 		network.clear();
+		networkCache.clear();
+		cacheOrder.clear();
 		latestNetworkInput.clear();
 		obfuscation.clear();
 		report = ObfuscationAnalysis.Report.empty();
@@ -142,6 +162,7 @@ public class AnalysisService {
 			return future;
 		}
 		for (JvmClassInfo cls : classes) {
+			latestNetworkInput.put(cls.getName(), cls);
 			pool.execute(() -> {
 				try {
 					if (this.workspace != workspace) return;
@@ -149,7 +170,8 @@ public class AnalysisService {
 					var obf = ObfuscationAnalysis.analyzeClass(cls);
 					synchronized (this) {
 						if (ticket != generation) return;
-						network.put(cls.getName(), net);
+						cacheNetwork(cls, net);
+						if (latestNetworkInput.get(cls.getName()) == cls) network.put(cls.getName(), net);
 						obfuscation.put(cls.getName(), obf);
 					}
 				} catch (Throwable t) {
@@ -173,22 +195,53 @@ public class AnalysisService {
 	}
 
 	private synchronized void refreshNetwork(JvmClassInfo cls) {
+		if (closed || workspace == null) return;
 		long ticket = generation;
 		latestNetworkInput.put(cls.getName(), cls);
+		NetworkAnalysis.ClassFindings cached = networkCache.get(cls);
+		if (cached != null) {
+			network.put(cls.getName(), cached);
+			notifyListeners();
+			return;
+		}
 		pool.execute(() -> {
 			try {
+				synchronized (this) {
+					if (ticket != generation || latestNetworkInput.get(cls.getName()) != cls) return;
+				}
 				var findings = NetworkAnalysis.analyze(cls);
 				synchronized (this) {
 					if (ticket != generation || latestNetworkInput.get(cls.getName()) != cls) return;
+					cacheNetwork(cls, findings);
 					network.put(cls.getName(), findings);
 				}
 				notifyListeners();
 			} catch (Throwable ignored) {}
 		});
 	}
-	public void close() { clear(); pool.shutdownNow(); }
+	private void cacheNetwork(JvmClassInfo cls, NetworkAnalysis.ClassFindings findings) {
+		if (networkCache.put(cls, findings) != null) return;
+		cacheOrder.addLast(cls);
+		while (cacheOrder.size() > MAX_CACHED_CLASSES) networkCache.remove(cacheOrder.removeFirst());
+	}
+	public synchronized void close() {
+		closed = true;
+		clear();
+		pool.shutdownNow();
+		notifications.shutdownNow();
+		listeners.clear();
+	}
 
-	private void notifyListeners() {
+	private synchronized void notifyListeners() {
+		if (closed || notificationPending) return;
+		notificationPending = true;
+		notifications.schedule(() -> {
+			synchronized (this) { notificationPending = false; if (closed) return; }
+			deliverNotifications();
+		}, 100, TimeUnit.MILLISECONDS);
+	}
+
+	private void deliverNotifications() {
 		for (Runnable listener : listeners)
 			try {
 				listener.run();

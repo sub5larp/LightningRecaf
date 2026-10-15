@@ -43,6 +43,8 @@ public class StatusBar extends HBox {
 	private final Button runButton = new Button();
 	private final Button cancelButton = new Button();
 	private boolean updatingToggles;
+	private boolean viewChangePending;
+	private final Runnable refreshLater = new recafx.util.FxCoalescer(this::refresh);
 
 	public StatusBar(WorkspaceManager workspaceManager, AnalysisService analysis, ViewStateManager viewState,
 	                 AutoDeobfuscator deobfuscator, Runnable openNetworkReport, Runnable openTheme) {
@@ -108,9 +110,9 @@ public class StatusBar extends HBox {
 		getChildren().addAll(workspaceLabel, sep(), obfLabel, sep(), netButton, sep(), spinner, progressLabel, spacer,
 				deobfToggle, normToggle, runButton, cancelButton, sep(), themeButton);
 
-		analysis.addListener(() -> FxThreadUtil.run(this::refresh));
-		viewState.addListener(() -> FxThreadUtil.run(this::refresh));
-		deobfuscator.addListener(p -> FxThreadUtil.run(this::refresh));
+		analysis.addListener(refreshLater);
+		viewState.addListener(refreshLater);
+		deobfuscator.addListener(p -> refreshLater.run());
 		refresh();
 	}
 
@@ -121,7 +123,7 @@ public class StatusBar extends HBox {
 	}
 
 	private void onToggle() {
-		if (updatingToggles) return;
+		if (updatingToggles || viewChangePending || viewState.isSwitching()) return;
 		ViewStateManager.View target = !deobfToggle.isSelected() ? ViewStateManager.View.ORIGINAL
 				: normToggle.isSelected() ? ViewStateManager.View.NORMALIZED : ViewStateManager.View.DEOBFUSCATED;
 		ViewStateManager.State state = viewState.getState();
@@ -133,14 +135,14 @@ public class StatusBar extends HBox {
 			return;
 		}
 		ViewStateManager.View finalTarget = target;
-		progressLabel.setText("Switching to " + finalTarget.label.toLowerCase() + " view...");
-		setToggleEnabled(false);
+		viewChangePending = true;
+		refresh();
 		deobfuscator.getExecutor().execute(() -> {
-			viewState.setView(finalTarget);
-			FxThreadUtil.run(() -> {
-				progressLabel.setText(deobfuscator.getProgress().message());
-				refresh();
-			});
+			try {
+				if (viewState.getState() == state) viewState.setView(finalTarget);
+			} finally {
+				FxThreadUtil.run(() -> { viewChangePending = false; refresh(); });
+			}
 		});
 	}
 
@@ -188,13 +190,14 @@ public class StatusBar extends HBox {
 		netButton.setStyle(net == 0 ? "" : HighlightIconFactory.STYLE_NET);
 
 		AutoDeobfuscator.Progress progress = deobfuscator.getProgress();
-		boolean running = progress.running();
+		boolean switching = viewChangePending || viewState.isSwitching();
+		boolean running = progress.running() || switching;
 		spinner.setVisible(running);
 		spinner.setManaged(running);
-		progressLabel.setText(progress.message());
+		progressLabel.setText(switching ? "Switching view..." : progress.message());
 		progressLabel.setTooltip(new Tooltip(progress.message()));
 		runButton.setDisable(running);
-		cancelButton.setDisable(!running);
+		cancelButton.setDisable(!progress.running());
 
 		ViewStateManager.State state = viewState.getState();
 		updatingToggles = true;

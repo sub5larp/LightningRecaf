@@ -105,6 +105,9 @@ public class EditorFlagger implements NavigableAddListener, software.coley.recaf
 		private Map<Integer, NetworkAnalysis.LineHit> netLines = Map.of();
 		private int obfLine = -1;
 		private String obfReason = "";
+		private String previousText;
+		private ObfuscationAnalysis.ClassReport previousReport;
+		private int previousOptions = -1;
 		private final javafx.beans.value.ChangeListener<String> textListener = (ob, old, cur) -> recompute(cur);
 
 		LineFlags(ClassPane pane, Editor editor) {
@@ -125,6 +128,14 @@ public class EditorFlagger implements NavigableAddListener, software.coley.recaf
 		}
 
 		void recompute(String text) {
+			ClassPathNode currentPath = pane.getPath();
+			ObfuscationAnalysis.ClassReport currentReport = currentPath == null ? null : analysis.getObfuscation(currentPath.getValue().getName());
+			int options = (config.getEditorFlags().getValue() ? 1 : 0) | (config.getHighlightNetwork().getValue() ? 2 : 0)
+					| (config.getHighlightObfuscated().getValue() ? 4 : 0);
+			if (java.util.Objects.equals(previousText, text) && previousReport == currentReport && previousOptions == options) return;
+			previousText = text;
+			previousReport = currentReport;
+			previousOptions = options;
 			Map<Integer, NetworkAnalysis.LineHit> hits = new HashMap<>();
 			int declarationLine = -1;
 			String reason = "";

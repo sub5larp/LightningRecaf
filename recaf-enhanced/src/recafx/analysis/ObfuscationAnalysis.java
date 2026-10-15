@@ -169,7 +169,7 @@ public final class ObfuscationAnalysis {
 			reasons.add("confusable names (" + confusable + ")");
 		}
 		if (members >= 3 && single * 100 / Math.max(1, members) >= 70) {
-			score += 1;
+			score += members >= 5 && single * 100 / members >= 80 && isSingleLetter(simpleName(className)) ? THRESHOLD : 1;
 			reasons.add("minified member names (" + single + "/" + members + ")");
 		}
 
@@ -195,6 +195,8 @@ public final class ObfuscationAnalysis {
 		int decryptCalls = 0, customIndy = 0, flowMethods = 0, flattened = 0, exceptionFlow = 0, junkSwitch = 0;
 		Set<String> ownStaticStringMethods = new LinkedHashSet<>();
 		Set<String> calledStaticMethods = new LinkedHashSet<>();
+		Set<String> constantStaticCalls = new LinkedHashSet<>();
+		Set<Handle> ownBootstraps = new LinkedHashSet<>();
 		for (MethodNode m : node.methods)
 			if ((m.access & Opcodes.ACC_STATIC) != 0 && m.desc.endsWith(")Ljava/lang/String;") && onlySimpleArgs(m.desc))
 				ownStaticStringMethods.add(m.name + m.desc);
@@ -215,7 +217,10 @@ public final class ObfuscationAnalysis {
 				else if (insn instanceof MethodInsnNode min) {
 					if (min.getOpcode() == Opcodes.INVOKESTATIC && min.owner.equals(className)
 							&& !(min.name.equals(m.name) && min.desc.equals(m.desc)))
+					{
 						calledStaticMethods.add(min.name + min.desc);
+						if (hasConstantArgs(min)) constantStaticCalls.add(min.name + min.desc);
+					}
 					if (min.getOpcode() == Opcodes.INVOKESTATIC && min.owner.equals(className)
 							&& ownStaticStringMethods.contains(min.name + min.desc) && hasConstantArgs(min))
 						decryptCalls++;
@@ -226,6 +231,7 @@ public final class ObfuscationAnalysis {
 				} else if (insn instanceof InvokeDynamicInsnNode indy) {
 					Handle bsm = indy.bsm;
 					String owner = bsm.getOwner();
+					if (owner.equals(className)) ownBootstraps.add(bsm);
 					if (!owner.startsWith("java/lang/invoke/") && !owner.startsWith("java/lang/runtime/"))
 						customIndy++;
 				}
@@ -277,6 +283,20 @@ public final class ObfuscationAnalysis {
 			reasons.add("XOR-decoded static string table");
 			fingerprints.add("ZKM-style XOR string tables");
 		}
+		if (hasMemoizedDecoder(node, calledStaticMethods)) {
+			score += THRESHOLD;
+			reasons.add("keyed memoized string or numeric decoder");
+			fingerprints.add("ZKM-style cached value encryption");
+		}
+		if (ownBootstraps.stream().anyMatch(handle -> recafx.deobf.ZkmBootstrapShape.resolver(node, handle) != null)) {
+			score += THRESHOLD;
+			reasons.add("keyed mutable-call-site reference adapter");
+			fingerprints.add("ZKM-style reference encryption");
+		}
+		if (hasLiteralXorDecoder(node, constantStaticCalls)) {
+			score += THRESHOLD;
+			reasons.add("constant strings passed through an XOR character decoder");
+		}
 
 		// --- Attributes / metadata ---------------------------------------------------------------
 		if (node.signature != null && !looksLikeSignature(node.signature)) {
@@ -326,17 +346,20 @@ public final class ObfuscationAnalysis {
 		for (String attr : attrNames) {
 			haystack.append("attr:").append(attr).append('\n');
 			java.util.regex.Matcher zkm = java.util.regex.Pattern.compile("^ZKM(\\d+(?:\\.\\d+)*)").matcher(attr);
-			if (zkm.find()) fingerprints.add("ZKM (Zelix KlassMaster) " + zkm.group(1));
+			if (zkm.find()) {
+				fingerprints.add("ZKM (Zelix KlassMaster) " + zkm.group(1));
+				score = Math.max(score, THRESHOLD);
+				reasons.add("ZKM classfile marker attribute");
+			}
 		}
 		for (AnnotationNode a : nullSafe(node.visibleAnnotations)) haystack.append(a.desc).append('\n');
 		for (AnnotationNode a : nullSafe(node.invisibleAnnotations)) haystack.append(a.desc).append('\n');
 		for (String s : strings) if (s.length() < 200) haystack.append(s).append('\n');
 		String hay = haystack.toString();
 		for (Fingerprint fingerprint : FINGERPRINTS)
-			if (fingerprint.pattern.matcher(hay).find())
+			if (score >= THRESHOLD && fingerprint.pattern.matcher(hay).find())
 				fingerprints.add(fingerprint.name);
 		if (!fingerprints.isEmpty()) {
-			score += 3;
 			reasons.add("obfuscator fingerprint: " + String.join(", ", fingerprints));
 		}
 
@@ -345,13 +368,13 @@ public final class ObfuscationAnalysis {
 
 	public static Report summarize(Collection<ClassReport> reports) {
 		Map<String, ClassReport> classes = new TreeMap<>();
-		Map<String, Integer> fingerprintCounts = new HashMap<>();
+		Map<String, Integer> fingerprintCounts = new TreeMap<>();
 		int obfuscated = 0;
 		Map<String, Integer> reasonCounts = new LinkedHashMap<>();
 		for (ClassReport report : reports) {
 			classes.put(report.className(), report);
 			if (report.obfuscated()) obfuscated++;
-			for (String f : report.fingerprints()) fingerprintCounts.merge(f, 1, Integer::sum);
+			if (report.obfuscated()) for (String f : report.fingerprints()) fingerprintCounts.merge(f, 1, Integer::sum);
 			for (String r : report.reasons()) {
 				int paren = r.indexOf(" (");
 				reasonCounts.merge(paren > 0 ? r.substring(0, paren) : r, 1, Integer::sum);
@@ -365,7 +388,8 @@ public final class ObfuscationAnalysis {
 		if (!fingerprintCounts.isEmpty() && obfuscated > 0) {
 			Map.Entry<String, Integer> best = null;
 			for (Map.Entry<String, Integer> e : fingerprintCounts.entrySet())
-				if (best == null || e.getValue() > best.getValue()) best = e;
+				if (best == null || e.getValue() > best.getValue()
+						|| (e.getValue().equals(best.getValue()) && e.getKey().contains("-style") && !best.getKey().contains("-style"))) best = e;
 			obfuscator = best.getKey();
 			confidence = Math.min(95, 70 + best.getValue() * 5);
 			fingerprintCounts.forEach((k, v) -> evidence.add(k + " fingerprint in " + v + " class" + (v == 1 ? "" : "es")));
@@ -399,10 +423,51 @@ public final class ObfuscationAnalysis {
 					|| !(decoder.desc.equals("([BI)Ljava/lang/String;") || decoder.desc.equals("([B[BI)Ljava/lang/String;"))) continue;
 			if (!hasOpcodes(decoder, Opcodes.IXOR, Opcodes.IREM, Opcodes.BALOAD, Opcodes.BASTORE)
 					|| !invokes(decoder, "java/lang/Integer", "toString", "(I)Ljava/lang/String;")
-					|| !invokes(decoder, "java/lang/String", "getBytes", "()[B")
+					|| !(invokes(decoder, "java/lang/String", "getBytes", "()[B")
+					|| invokes(decoder, "java/lang/String", "getBytes", "(Ljava/nio/charset/Charset;)[B")
+					|| invokes(decoder, "java/lang/String", "getBytes", "(Ljava/lang/String;)[B"))
 					|| !(invokes(decoder, "java/lang/String", "<init>", "([BLjava/nio/charset/Charset;)V")
 					|| invokes(decoder, "java/lang/String", "<init>", "([BLjava/lang/String;)V"))) continue;
 			return true;
+		}
+		return false;
+	}
+
+	private static boolean hasLiteralXorDecoder(ClassNode node, Set<String> constantCalls) {
+		for (MethodNode method : node.methods) {
+			if ((method.access & Opcodes.ACC_STATIC) == 0 || !constantCalls.contains(method.name + method.desc)
+					|| !method.desc.startsWith("(Ljava/lang/String;") || !method.desc.endsWith(")Ljava/lang/String;")) continue;
+			if (hasOpcodes(method, Opcodes.IXOR, Opcodes.CALOAD, Opcodes.CASTORE)
+					&& invokes(method, "java/lang/String", "toCharArray", "()[C")
+					&& invokes(method, "java/lang/String", "<init>", "([C)V")) return true;
+		}
+		return false;
+	}
+
+	private static boolean hasMemoizedDecoder(ClassNode node, Set<String> calledMethods) {
+		Set<String> arrays = new LinkedHashSet<>();
+		for (FieldNode field : node.fields)
+			if ((field.access & (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)) == (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)
+					&& Set.of("[Ljava/lang/String;", "[Ljava/lang/Integer;", "[Ljava/lang/Long;").contains(field.desc))
+				arrays.add(field.name + field.desc);
+		if (arrays.isEmpty()) return false;
+		for (MethodNode method : node.methods) {
+			if ((method.access & Opcodes.ACC_STATIC) == 0 || !calledMethods.contains(method.name + method.desc)
+					|| !Set.of("(II)Ljava/lang/String;", "(IJ)Ljava/lang/String;", "(IJ)I", "(IJ)J").contains(method.desc)) continue;
+			if (!hasOpcodes(method, Opcodes.IXOR, Opcodes.AALOAD, Opcodes.AASTORE)) continue;
+			boolean ownArray = false, des = false;
+			for (AbstractInsnNode instruction : method.instructions) {
+				if (instruction instanceof FieldInsnNode field && field.getOpcode() == Opcodes.GETSTATIC
+						&& field.owner.equals(node.name) && arrays.contains(field.name + field.desc)) ownArray = true;
+				if (instruction instanceof LdcInsnNode ldc && ldc.cst instanceof String value && value.startsWith("DES/")) des = true;
+			}
+			if (!ownArray) continue;
+			boolean chars = hasOpcodes(method, Opcodes.CALOAD, Opcodes.CASTORE)
+					&& invokes(method, "java/lang/String", "toCharArray", "()[C")
+					&& invokes(method, "java/lang/String", "<init>", "([C)V");
+			boolean cipher = des && invokes(method, "javax/crypto/Cipher", "doFinal", "([B)[B")
+					&& invokes(method, "javax/crypto/SecretKeyFactory", "getInstance", "(Ljava/lang/String;)Ljavax/crypto/SecretKeyFactory;");
+			if (chars || cipher) return true;
 		}
 		return false;
 	}
