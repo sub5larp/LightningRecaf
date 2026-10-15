@@ -1,0 +1,15 @@
+{
+  "vendor": "Eclipse Temurin",
+  "version": "25.0.4.1+1-LTS",
+  "platform": "windows-x64",
+  "binary": {
+    "name": "OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+    "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4.1_1.zip",
+    "sha256": "00c847d804f4a78e9f04f2683faf14fed898535b177b7fc704486cb0284e9283"
+  },
+  "source": {
+    "name": "OpenJDK25U-jdk-sources_25.0.4.1_1.tar.gz",
+    "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk-sources_25.0.4.1_1.tar.gz",
+    "sha256": "cb9e50d2eb3de72ffd28466d7c511b4039b4bc4bd8f0d276d1e4cf81e30fdf09"
+  }
+}

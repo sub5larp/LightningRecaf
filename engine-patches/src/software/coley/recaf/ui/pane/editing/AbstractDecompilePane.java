@@ -1,0 +1,539 @@
+package software.coley.recaf.ui.pane.editing;
+
+import atlantafx.base.controls.Spacer;
+import atlantafx.base.theme.Styles;
+import jakarta.annotation.Nonnull;
+import javafx.collections.ObservableList;
+import javafx.animation.PauseTransition;
+import javafx.application.Platform;
+import javafx.util.Duration;
+import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.control.Button;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
+import org.fxmisc.richtext.CodeArea;
+import org.slf4j.Logger;
+import software.coley.observables.ObservableBoolean;
+import software.coley.observables.ObservableObject;
+import software.coley.recaf.analytics.logging.Logging;
+import software.coley.recaf.info.AndroidClassInfo;
+import software.coley.recaf.info.ClassInfo;
+import software.coley.recaf.info.JvmClassInfo;
+import software.coley.recaf.info.InnerClassInfo;
+import software.coley.recaf.info.member.ClassMember;
+import software.coley.recaf.info.properties.builtin.RemapOriginTaskProperty;
+import software.coley.recaf.path.ClassPathNode;
+import software.coley.recaf.path.IncompletePathException;
+import software.coley.recaf.path.PathNode;
+import software.coley.recaf.services.cell.CellConfigurationService;
+import software.coley.recaf.services.decompile.DecompileResult;
+import software.coley.recaf.services.decompile.DecompilerManager;
+import software.coley.recaf.services.decompile.JvmDecompiler;
+import software.coley.recaf.services.decompile.NoopJvmDecompiler;
+import software.coley.recaf.services.info.association.FileTypeSyntaxAssociationService;
+import software.coley.recaf.services.mapping.MappingResults;
+import software.coley.recaf.services.mapping.Mappings;
+import software.coley.recaf.services.navigation.Actions;
+import software.coley.recaf.services.navigation.ClassNavigable;
+import software.coley.recaf.services.navigation.Navigable;
+import software.coley.recaf.services.navigation.NavigationHistoryService;
+import software.coley.recaf.services.navigation.UpdatableNavigable;
+import software.coley.recaf.services.source.AstMapper;
+import software.coley.recaf.services.source.AstResolveResult;
+import software.coley.recaf.services.source.AstService;
+import software.coley.recaf.services.source.ResolverAdapter;
+import software.coley.recaf.services.tutorial.TutorialConfig;
+import software.coley.recaf.ui.config.KeybindingConfig;
+import software.coley.recaf.ui.control.BoundLabel;
+import software.coley.recaf.ui.control.animation.LabelByteAnimationTransition;
+import software.coley.recaf.ui.control.richtext.Editor;
+import software.coley.recaf.ui.control.richtext.bracket.SelectedBracketTracking;
+import software.coley.recaf.ui.control.richtext.highlight.SelectedWordHighlighting;
+import software.coley.recaf.ui.control.richtext.problem.ProblemTracking;
+import software.coley.recaf.ui.control.richtext.search.SearchBar;
+import software.coley.recaf.ui.control.richtext.source.JavaContextActionSupport;
+import software.coley.recaf.ui.control.richtext.suggest.TabCompletionConfig;
+import software.coley.recaf.ui.control.richtext.suggest.java.JavaTabCompleter;
+import software.coley.recaf.ui.control.richtext.suggest.typeindex.TypeIndexService;
+import software.coley.recaf.ui.pane.editing.android.AndroidDecompilerPane;
+import software.coley.recaf.ui.pane.editing.jvm.DecompilerPaneConfig;
+import software.coley.recaf.ui.pane.editing.jvm.JvmDecompilerPane;
+import software.coley.recaf.ui.pane.editing.text.TextConfig;
+import software.coley.recaf.util.FxThreadUtil;
+import software.coley.recaf.util.Keywords;
+import software.coley.recaf.util.Lang;
+import software.coley.recaf.util.StringDiff;
+import software.coley.recaf.util.StringUtil;
+import software.coley.recaf.workspace.model.Workspace;
+import software.coley.sourcesolver.model.CompilationUnitModel;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * Common outline for decompiler panes utilizing {@link JvmDecompiler}.
+ * <br>
+ * For Android content it is assumed {@link AndroidClassInfo#asJvmClass()} is implemented as a conversion process.
+ *
+ * @author Matt Coley
+ * @see JvmDecompilerPane
+ * @see AndroidDecompilerPane
+ */
+public class AbstractDecompilePane extends BorderPane implements ClassNavigable, UpdatableNavigable {
+	private static final Logger logger = Logging.get(AbstractDecompilePane.class);
+	protected final ObservableObject<JvmDecompiler> decompiler = new ObservableObject<>(NoopJvmDecompiler.getInstance());
+	protected final ObservableBoolean decompileOutputErrored = new ObservableBoolean(false);
+	protected final ObservableBoolean decompileInProgress = new ObservableBoolean(false);
+	protected final AtomicBoolean updateLock = new AtomicBoolean();
+	protected final ProblemTracking problemTracking = new ProblemTracking();
+	protected final AstService astService;
+	protected final JavaContextActionSupport contextActionSupport;
+	protected final DecompilerManager decompilerManager;
+	protected final DecompilerPaneConfig decompileConfig;
+	protected final TutorialConfig tutorialConfig;
+	protected final Editor editor;
+	protected ClassPathNode path;
+	// All request state belongs to the FX thread. Mapping/view changes may arrive in bursts.
+	private final PauseTransition refreshDelay = new PauseTransition(Duration.millis(60));
+	private long requestSequence;
+	private CompletableFuture<DecompileResult> activeRequest;
+	private ClassInfo renderedClass;
+	private boolean closed;
+
+	protected AbstractDecompilePane(@Nonnull DecompilerPaneConfig decompileConfig,
+	                                @Nonnull TutorialConfig tutorialConfig,
+	                                @Nonnull KeybindingConfig keys,
+	                                @Nonnull SearchBar searchBar,
+	                                @Nonnull AstService astService,
+	                                @Nonnull JavaContextActionSupport contextActionSupport,
+	                                @Nonnull NavigationHistoryService navigationHistoryService,
+	                                @Nonnull CellConfigurationService cellConfigurationService,
+	                                @Nonnull FileTypeSyntaxAssociationService languageAssociation,
+	                                @Nonnull DecompilerManager decompilerManager,
+	                                @Nonnull TypeIndexService typeIndexService,
+	                                @Nonnull TabCompletionConfig tabCompletionConfig,
+	                                @Nonnull TextConfig textConfig,
+	                                @Nonnull Actions actions) {
+		this.astService = astService;
+		this.contextActionSupport = contextActionSupport;
+		this.decompilerManager = decompilerManager;
+		this.decompileConfig = decompileConfig;
+		this.tutorialConfig = tutorialConfig;
+
+		decompiler.setValue(decompilerManager.getTargetJvmDecompiler());
+		decompiler.addChangeListener((ob, old, cur) -> decompile());
+
+		// Configure the editor
+		editor = new Editor();
+		languageAssociation.configureEditorSyntax("java", editor);
+		if (textConfig.doHighlightWord())
+			editor.setSelectedWordHighlighting(new SelectedWordHighlighting(Keywords.getKeywords()));
+		if (textConfig.doTrackBrackets()) editor.setSelectedBracketTracking(new SelectedBracketTracking());
+		editor.setProblemTracking(problemTracking);
+		editor.getRootLineGraphicFactory().addDefaultCodeGraphicFactories();
+		contextActionSupport.install(editor);
+		editor.getCaretPosEventStream().addObserver(change -> {
+			PathNode<?> enclosingPath = contextActionSupport.getEnclosingDeclarationPath(change.getNewValue(), false);
+			if (enclosingPath != null)
+				navigationHistoryService.record(enclosingPath);
+		});
+		if (tabCompletionConfig.isEnabledInJavaSource())
+			editor.setTabCompleter(new JavaTabCompleter(contextActionSupport, cellConfigurationService, typeIndexService, tabCompletionConfig));
+		searchBar.install(editor);
+
+		// Setup common keybindings.
+		addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+			if (keys.getAssembler().match(e)) {
+				// Resolve what the caret position has, then handle opening the assembler for the resulting path.
+				PathNode<?> enclosingPath = contextActionSupport.getEnclosingDeclarationPath(editor.getCodeArea().getCaretPosition(), true);
+				if (enclosingPath != null) {
+					try {
+						actions.openAssembler(enclosingPath);
+					} catch (IncompletePathException ex) {
+						logger.warn("Cannot open assembler for the current location, path incomplete", ex);
+					}
+				}
+			} else if (keys.getRename().match(e)) {
+				// Resolve what the caret position has, then handle renaming on the generic result.
+				AstResolveResult result = contextActionSupport.resolvePosition(editor.getCodeArea().getCaretPosition());
+				if (result != null)
+					actions.rename(result.path());
+			} else if (keys.getGoto().match(e)) {
+				// Resolve what the caret position has, then handle navigating to the resulting path.
+				AstResolveResult result = contextActionSupport.resolvePosition(editor.getCodeArea().getCaretPosition());
+				if (result != null) {
+					try {
+						actions.gotoDeclaration(result.path());
+					} catch (IncompletePathException ex) {
+						// Should realistically never happen
+						logger.warn("Cannot goto location, path incomplete", ex);
+					}
+				}
+			}
+		});
+
+		// Keep control-click navigation consistent across JVM and Android decompiler panes.
+		addEventFilter(MouseEvent.MOUSE_CLICKED, e -> {
+			if (e.getButton() == MouseButton.PRIMARY && e.isControlDown()) {
+				// Resolve what the caret position has, then handle navigating to the resulting path.
+				AstResolveResult result = contextActionSupport.resolvePosition(editor.getCodeArea().getCaretPosition());
+				if (result != null) {
+					try {
+						actions.gotoDeclaration(result.path());
+					} catch (IncompletePathException ex) {
+						// Should realistically never happen
+						logger.warn("Cannot goto location, path incomplete", ex);
+					}
+				}
+			}
+		});
+
+		// Add overlay for when decompilation is in-progress
+		DecompileProgressOverlay overlay = new DecompileProgressOverlay();
+		decompileInProgress.addChangeListener((ob, old, cur) -> {
+			ObservableList<Node> children = editor.getPrimaryStack().getChildren();
+			if (cur) { if (!children.contains(overlay)) children.add(overlay); }
+			else children.remove(overlay);
+		});
+		refreshDelay.setOnFinished(e -> startDecompile());
+
+		// Layout
+		setCenter(editor);
+	}
+
+	@Nonnull
+	@Override
+	public ClassPathNode getPath() {
+		return path;
+	}
+
+	@Nonnull
+	@Override
+	public ClassPathNode getClassPath() {
+		return path;
+	}
+
+	@Override
+	public void requestFocus(@Nonnull ClassMember member) {
+		contextActionSupport.select(member);
+		requestFocus();
+	}
+
+	@Override
+	public void requestFocus(@Nonnull InnerClassInfo innerClass) {
+		contextActionSupport.select(innerClass);
+		requestFocus();
+	}
+
+	@Override
+	public void requestFocus() {
+		// Delegate focus to the editor.
+		editor.getCodeArea().requestFocus();
+	}
+
+	@Nonnull
+	@Override
+	public Collection<Navigable> getNavigableChildren() {
+		return Collections.singleton(contextActionSupport);
+	}
+
+	@Override
+	public void disable() {
+		if (!Platform.isFxApplicationThread()) { FxThreadUtil.run(this::disable); return; }
+		closed = true;
+		cancelRequest();
+		setDisable(true);
+		setOnKeyPressed(null);
+		editor.close();
+		contextActionSupport.close();
+	}
+
+	@Override
+	public void onUpdatePath(@Nonnull PathNode<?> path) {
+		if (!Platform.isFxApplicationThread()) { FxThreadUtil.run(() -> onUpdatePath(path)); return; }
+		if (closed) return;
+		ClassInfo previous = this.path == null ? null : this.path.getValue();
+		// Pass to children
+		for (Navigable navigableChild : getNavigableChildren())
+			if (navigableChild instanceof UpdatableNavigable updatableNavigable)
+				updatableNavigable.onUpdatePath(path);
+
+		// Handle updates to the decompiled code.
+		if (!updateLock.get() && path instanceof ClassPathNode classPathNode) {
+			this.path = classPathNode;
+			ClassInfo classInfo = classPathNode.getValue();
+
+			// Check if the class is an Android class and can be mapped.
+			if (!classInfo.isJvmClass() && classInfo.isAndroidClass()) {
+				AndroidClassInfo androidInfo = classInfo.asAndroidClass();
+				if (androidInfo.canMapToJvmClass())
+					classInfo = androidInfo.asJvmClass();
+				else
+					throw new IllegalStateException("Decompiler component received non-convertible Android class");
+			}
+
+			// Check if we can update the text efficiently with a remapper.
+			// If not, then schedule a decompilation instead.
+			boolean remapped = false;
+			if (!decompileInProgress.getValue() && renderedClass == previous
+					&& decompileConfig.getUseMappingAcceleration().getValue()) {
+				try { remapped = handleRemapUpdate(classInfo); }
+				catch (RuntimeException failure) { logger.debug("AST refresh failed; scheduling decompilation", failure); }
+			}
+			// Parsing the replacement text is asynchronous. A following mapping update must not
+			// reuse the previous compilation unit while that parse is still outstanding.
+			if (remapped) renderedClass = null;
+			else decompile();
+		}
+	}
+
+	/**
+	 * Associates the given {@link ToolsContainerComponent} with this decompile pane's {@link #editor}.
+	 *
+	 * @param toolsContainer
+	 * 		Tool container to install.
+	 */
+	protected void installToolsContainer(@Nonnull ToolsContainerComponent toolsContainer) {
+		DecompileFailureButton failureButton = new DecompileFailureButton();
+		decompileOutputErrored.addChangeListener((ob, old, cur) -> {
+			failureButton.setVisible(cur);
+			if (cur) failureButton.animate();
+		});
+
+		toolsContainer.install(editor);
+		toolsContainer.add(contextActionSupport.getAvailabilityButton());
+		toolsContainer.addLast(failureButton);
+	}
+
+	/**
+	 * Attempts to update the {@link #editor}'s text with intent-specific AST operations.
+	 * This includes:
+	 * <ul>
+	 *     <li>{@link AstMapper} when handling classes marked with {@link RemapOriginTaskProperty}</li>
+	 * </ul>
+	 *
+	 * @param classInfo
+	 * 		Modified class.
+	 *
+	 * @return {@code true} when we were able to handle it with an AST visitors.
+	 */
+	private boolean handleRemapUpdate(@Nonnull ClassInfo classInfo) {
+		// Attempt to handle change with an AST mapping visitor if the change is originating
+		// from a mapping application job.
+		String currentText = editor.getText();
+		if (!currentText.isBlank()) {
+			MappingResults mappingOrigin = classInfo.getPropertyValueOrNull(RemapOriginTaskProperty.KEY);
+			if (mappingOrigin != null) {
+				Mappings mappings = mappingOrigin.getMappings();
+
+				// We can handle the update with AST mapping instead of decompiling the class again.
+				CompilationUnitModel unit = contextActionSupport.getUnit();
+				Workspace workspace = path.getValueOfType(Workspace.class);
+				if (unit != null && workspace != null) {
+					ResolverAdapter resolver = astService.newJavaResolver(workspace, getPath(), unit);
+					String modifiedSource = astService.applyMappings(unit, resolver, mappings);
+
+					// If there were no changes made then the AST service failed to make dynamic changes.
+					// This can happen when the classes being mapped are not in the workspace, but instead
+					// belong to 3rd party libraries not present in the workspace.
+					if (currentText.equals(modifiedSource))
+						return false;
+
+					// We want to get the difference between the current and modified text and update only
+					// the areas of the text that are modified. In most situations this will be much faster
+					// than re-assigning the whole text (which will require restyling the entire document)
+					List<StringDiff.Diff> diffs = StringDiff.diff(currentText, modifiedSource);
+					FxThreadUtil.run(() -> {
+						// Track where caret was.
+						CodeArea area = editor.getCodeArea();
+						int currentParagraph = area.getCurrentParagraph();
+						int currentColumn = area.getCaretColumn();
+
+						// Apply diffs.
+						for (int i = diffs.size() - 1; i >= 0; i--) {
+							StringDiff.Diff diff = diffs.get(i);
+							if (diff.type() == StringDiff.DiffType.CHANGE)
+								area.replaceText(diff.startA(), diff.endA(), diff.textB());
+							else if (diff.type() == StringDiff.DiffType.INSERT)
+								area.insertText(diff.startA(), diff.textB());
+							else if (diff.type() == StringDiff.DiffType.REMOVE)
+								area.replaceText(diff.startA(), diff.endA(), "");
+						}
+
+						// Reset caret.
+						area.moveTo(currentParagraph, currentColumn);
+					});
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Decompiles the class contained by the current {@link #path} and updates the {@link #editor}'s text
+	 * with the decompilation results.
+	 */
+	public void decompile() {
+		if (!Platform.isFxApplicationThread()) { FxThreadUtil.run(this::decompile); return; }
+		if (closed || path == null) return;
+		cancelRequest();
+		decompileInProgress.setValue(true);
+		refreshDelay.playFromStart();
+	}
+
+	private void cancelRequest() {
+		++requestSequence;
+		refreshDelay.stop();
+		if (activeRequest != null) activeRequest.cancel(false);
+		activeRequest = null;
+		decompileInProgress.setValue(false);
+		editor.getCodeArea().setMouseTransparent(false);
+	}
+
+	private void startDecompile() {
+		if (closed || path == null) { cancelRequest(); return; }
+		long sequence = ++requestSequence;
+		ClassPathNode requestedPath = path;
+		try {
+		Workspace workspace = requestedPath.getValueOfType(Workspace.class);
+		JvmClassInfo classInfo = requestedPath.getValue().asJvmClass();
+
+		// Schedule decompilation task, update the editor's text asynchronously on the JavaFX UI thread when complete.
+		decompileInProgress.setValue(true);
+		editor.getCodeArea().setMouseTransparent(true);
+		activeRequest = decompilerManager.decompile(decompiler.getValue(), workspace, classInfo);
+		activeRequest
+				.completeOnTimeout(timeoutResult(), Math.max(1, decompileConfig.getTimeoutSeconds().getValue()), TimeUnit.SECONDS)
+				.whenCompleteAsync((result, throwable) -> {
+					if (closed || sequence != requestSequence || path != requestedPath) return;
+					activeRequest = null;
+					editor.getCodeArea().setMouseTransparent(false);
+					decompileInProgress.setValue(false);
+					renderedClass = null;
+
+					// Handle uncaught exceptions
+					if (throwable != null) {
+						decompileOutputErrored.setValue(true);
+						String trace = StringUtil.traceToString(throwable);
+						editor.setText("/*\nUncaught exception when decompiling:\n" + trace + "\n*/");
+						return;
+					}
+
+					// Handle decompilation result
+					if (result == null) {
+						decompileOutputErrored.setValue(true);
+						editor.setText("// The decompiler returned no result. Select another decompiler to retry.");
+						return;
+					}
+					String text = result.getText();
+					DecompileResult.ResultType resultType = result.getType();
+					decompileOutputErrored.setValue(resultType == DecompileResult.ResultType.FAILURE);
+					if (resultType == DecompileResult.ResultType.SUCCESS) renderedClass = requestedPath.getValue();
+					if (Objects.equals(text, editor.getText()))
+						return; // Skip if existing text is the same
+					switch (resultType) {
+						case SUCCESS -> editor.setText(text);
+						case SKIPPED -> editor.setText(text == null ? "// Decompilation skipped" : text);
+						case FAILURE -> {
+							Throwable exception = result.getException();
+							if (exception != null) {
+								String trace = StringUtil.traceToString(exception);
+								editor.setText("/*\nDecompile failed:\n" + trace + "\n*/");
+							} else {
+								editor.setText("/*\nDecompile failed, but no trace was attached.\n*/");
+							}
+						}
+					}
+
+					// Schedule AST parsing for context action support.
+					contextActionSupport.scheduleAstParse();
+
+					// Prevent undo from reverting to empty state.
+					editor.getCodeArea().getUndoManager().forgetHistory();
+				}, FxThreadUtil.executor());
+		} catch (Throwable failure) {
+			cancelRequest();
+			decompileOutputErrored.setValue(true);
+			editor.setText("/* Could not start decompilation:\n" + StringUtil.traceToString(failure) + "\n*/");
+		}
+	}
+
+	/**
+	 * @return Result made for timed out decompilations.
+	 */
+	@Nonnull
+	private DecompileResult timeoutResult() {
+		JvmClassInfo info = path.getValue().asJvmClass();
+		JvmDecompiler jvmDecompiler = decompiler.getValue();
+		return new DecompileResult("""
+				// Decompilation timed out.
+				//  - Class name: %s
+				//  - Class size: %d bytes
+				//  - Decompiler: %s - %s
+				//  - Timeout: %d seconds
+				//
+				// Suggestions:
+				//  - Increase timeout
+				//  - Change decompilers in 'config' or bottom right (i)
+				//  - Deobfuscate heavily obfuscated code and try again
+				//
+				// Reminder:
+				//  - Class information is still available on the side panels ==>
+				""".formatted(info.getName(),
+				info.getBytecode().length,
+				jvmDecompiler.getName(), jvmDecompiler.getVersion(),
+				decompileConfig.getTimeoutSeconds().getValue()
+		));
+	}
+
+	/**
+	 * And overlay shown while a class is being decompiled.
+	 */
+	private class DecompileProgressOverlay extends VBox {
+		private DecompileProgressOverlay() {
+			Label title = new BoundLabel(Lang.getBinding("java.decompiling"));
+			Label text = new Label();
+			Button cancel = new Button("Cancel decompilation");
+			cancel.setOnAction(e -> {
+				cancelRequest();
+				if (path == null || renderedClass != path.getValue() || editor.getText().isBlank())
+					editor.setText("// Decompilation cancelled. Reopen this class or change decompiler to retry.");
+			});
+			title.getStyleClass().add(Styles.TITLE_3);
+			text.getStyleClass().add(Styles.TEXT_SUBTLE);
+			text.setFont(new Font("JetBrains Mono", 12)); // Pulling from CSS applied to the editor.
+
+			// Layout
+			getChildren().addAll(new Spacer(Orientation.VERTICAL), title, text, cancel, new Spacer(Orientation.VERTICAL));
+			setSpacing(12);
+			getStyleClass().addAll("background");
+			setFillWidth(true);
+			setAlignment(Pos.CENTER);
+
+			// Setup transition to play whenever decompilation is in progress.
+			LabelByteAnimationTransition transition = new LabelByteAnimationTransition(text);
+			decompileInProgress.addChangeListener((ob, old, cur) -> {
+				setVisible(cur);
+				if (cur) {
+					transition.update(path.getValue().asJvmClass());
+					transition.play();
+				} else
+					transition.stop();
+			});
+		}
+
+	}
+}

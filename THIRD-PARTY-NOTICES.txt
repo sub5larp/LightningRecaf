@@ -1,0 +1,34 @@
+LightningRecaf third-party software
+
+Recaf: https://github.com/Col-E/Recaf
+Copyright Matt Coley and Recaf contributors. MIT; licenses/Recaf-MIT.txt.
+Base revision: 17216bd3b76bc6ef36c4198262b5318e2936fbb7.
+The patch overlay modifies AbstractDecompilePane, DecompilerManager,
+StaticValueCollectionTransformer, InstanceFactory, OpaqueConstantFoldingTransformer,
+VariableFoldingTransformer and ZkmParameterUnpackingTransformer. Adapted recovery
+passes retain attribution in source. The dark grayscale R logo derives from
+Recaf's original logo. LightningRecaf is an independent fork.
+
+Diobfuscator: https://github.com/Diobf/Deobfuscator
+Copyright Diobfuscator / uwu.narumi contributors. GPL-3.0;
+licenses/Diobfuscator-GPL-3.0.txt. Adapted SkidNumberTransformer and numeric
+encoding passes are identified in source, including upstream revisions.
+The combined enhancement plugin and corresponding source are supplied under
+GPL-3.0. Complete corresponding enhancement source and build scripts are provided
+in this repository and in the companion LightningRecaf-source.zip download at
+https://github.com/sub5larp/LightningRecaf/releases/tag/v2.3.2.
+
+Skidfuscator: https://github.com/skidfuscatordev/skidfuscator-java-obfuscator
+Copyright (c) 2021 Shanyu Juneja. MIT; licenses/Skidfuscator-MIT.txt.
+Decoder templates informed recovery models; attribution
+and revision identifiers are retained in source.
+
+Eclipse Temurin / OpenJDK: https://adoptium.net/
+An unmodified Windows x64 JDK is included in runtime. Its license texts and
+third-party notices are retained in runtime/legal and runtime/NOTICE.
+Matching complete OpenJDK source is included under third-party in the companion
+LightningRecaf-source.zip download at the same release URL. Version, official
+download locations and archive checksums are recorded in runtime-pin.json
+(standalone/runtime-pin.json in the source tree).
+
+ASM, JavaFX and other Recaf dependencies retain their notices in the engine JARs.

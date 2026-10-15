@@ -1,0 +1,45 @@
+/* LightningRecaf: always-on styles (badges, status bar, editor line flags, explorer tabs). */
+.recafx-status-bar {
+    -fx-background-color: -color-bg-overlay;
+    -fx-border-color: -color-border-muted;
+    -fx-border-width: 1 0 0 0;
+    -fx-font-size: 11px;
+}
+.recafx-status-bar .label {
+    -fx-text-fill: -color-fg-subtle;
+}
+.recafx-status-bar .button, .recafx-status-bar .toggle-button {
+    -fx-padding: 2 7 2 7;
+    -fx-font-size: 11px;
+}
+.recafx-status-bar .toggle-button:selected {
+    -fx-background-color: -color-accent-subtle;
+    -fx-text-fill: -color-accent-fg;
+    -fx-border-color: -color-accent-muted;
+}
+.recafx-progress {
+    -fx-text-fill: -color-fg-muted;
+}
+.code-area .recafx-net-line {
+    -fx-background-color: rgba(255, 79, 69, 0.13);
+}
+.code-area .recafx-obf-line {
+    -fx-background-color: rgba(63, 212, 90, 0.13);
+}
+.recafx-theme-tile {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -color-border-muted;
+    -fx-padding: 6;
+    -fx-cursor: hand;
+}
+.recafx-theme-tile:hover {
+    -fx-border-color: -color-accent-emphasis;
+}
+.recafx-theme-tile.selected {
+    -fx-border-color: -color-accent-emphasis;
+    -fx-border-width: 2;
+}
+.recafx-theme-preview {
+    -fx-background-radius: 6;
+}

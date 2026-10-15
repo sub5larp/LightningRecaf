@@ -1,0 +1,26 @@
+{
+  "engineCommit": "17216bd3b76bc6ef36c4198262b5318e2936fbb7",
+  "javaFx": "24.0.2",
+  "files": [
+    {
+      "path": "recaf.jar",
+      "sha256": "a08e34b2fa999bb77b6df8ec40d988135aed89ef9765e645835be3ccf460ee33"
+    },
+    {
+      "path": "dependencies/javafx-base-24.0.2-win.jar",
+      "sha256": "36d4efbcad736b3082544973a4043d99d7bdf7a0386e782eab85ff6965bd6b82"
+    },
+    {
+      "path": "dependencies/javafx-controls-24.0.2-win.jar",
+      "sha256": "bebfc6ae2cb28676788d2ed4f4a0aabb2a9058a7725f937b3f1d6e9369746aab"
+    },
+    {
+      "path": "dependencies/javafx-graphics-24.0.2-win.jar",
+      "sha256": "eb70ed3ee189e19c7ca6846d33f4a276a665eed49294214e1b1903bd93308b40"
+    },
+    {
+      "path": "dependencies/javafx-media-24.0.2-win.jar",
+      "sha256": "25b73d856340b7d496a43b98c3b11b098fa6d989dfea16d183f16c0402c14758"
+    }
+  ]
+}

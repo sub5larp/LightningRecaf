@@ -1,0 +1,156 @@
+LightningRecaf 2.3 - Recovery coverage and limits
+
+36 automatic transformers; up to 8 pipeline iterations by default (configurable 1-32).
+The pipeline applies supported patterns wherever their conditions match, without
+requiring an obfuscator name. Family labels are heuristic clues, not proof.
+
+Conservative pipeline
+  Strings: bounded bytecode interpretation of audited helper closures; XOR and
+  char/byte-array loops; Base64; reverse/append; DES, AES and Blowfish decryptors;
+  MD5/SHA-derived keys; nested fresh-array helper arguments; private static tables.
+  Numbers: arithmetic/bitwise and variable folding, opaque constant predicates,
+  encoded IEEE-754 bits, bit reversal, narrowing, static numeric pools,
+  fresh seeded Random(seed).nextInt/Long/Boolean/Float/Double patterns.
+  Control flow: dead code, redundant branches and uniform switches, goto chains,
+  redundant exception handlers, duplicate catches, legacy JSR/RET subroutines.
+  Metadata: malformed signatures/annotations/varargs, duplicate annotations,
+  frame regeneration, local-variable table normalization.
+  Specialized upstream passes: ZKM Object[] parameter unpacking; DashO opaque seeds.
+  Names: illegal/confusable class/member names and optional minified identifiers;
+  mappings are reversible and exportable as Tiny v2. These are generated names,
+  not recovered original source identifiers.
+
+Public-source adaptations actually included
+  Diobfuscator SkidNumberTransformer -> seeded Random constants.
+  Diobfuscator v1 CaesiumNumberTransformer + BinsecureNumberTransformer -> numeric
+  encodings, with exact method descriptors, result types and block boundaries.
+  Recaf CallResultInliningTransformer -> audited pure-call folding.
+  Recaf StaticValueInliningTransformer -> audited static-table inlining.
+  Recaf's other built-in passes are reused from the pinned engine.
+
+Targeted family recovery
+  lightning.skid.initialized-strings: published Skid v3 field-key UTF-16 and
+    pooled UTF-16BE decoder shapes, including fresh byte-array helper arguments.
+    Interprets actual instructions with audited immutable state and known salts.
+  lightning.zkm.indexed-strings: indexed XOR/crypto helpers with known primitive
+    arguments and immutable tables. Works on matching custom helpers as well.
+  lightning.zkm.memoized-strings: private (II), (III), (IJ), or (I) String decoders
+    with proven private caches, stable indices and agreeing constant callers.
+    Supports enhanced XOR and modeled DES/CBC/PKCS5Padding helpers. Classic two
+    private String-array initializers may have a closed pure prefix followed by
+    business code; only the prefix is interpreted and the suffix is preserved.
+    Empty or deterministically prefilled caches are modeled; fully audited initializer
+    calls remain intact. Repeated identical arguments reuse a bounded evaluation.
+    Rejects unknown callers, conflicting results for an initially empty slot,
+    escaped caches, mutable tables, nested access and reachable custom bootstrap/reflection clues.
+    Unreferenced private reflection helpers no longer block a closed decoder;
+    annotated/serialization private entry points are retained in that audit.
+  lightning.zkm.memoized-numbers: private (IJ)I and (IJ)J helpers with Integer[]
+    or Long[] caches. Checks unboxing, array access/escape, initial cache contents
+    and agreement among constant callers; supports warmed numeric cache slots.
+  lightning.zkm.des-numbers: modeled DES/CBC/NoPadding numeric table decoding,
+    including DESKeySpec and SecretKeyFactory key construction.
+  lightning.skid.opaque-identities: exact int/long local x^x, x-x, x&x and x|x.
+  lightning.skid.exception-edges: throw-null edges with an empty operand stack
+    and a proven first matching catch that discards the exception.
+  lightning.zkm.identity-rethrows: exact same-class identity helper before ATHROW;
+    synchronized helpers, interfaces and observable helper bodies are retained.
+  lightning.strings.constant-indy-concat: standard StringConcatFactory only,
+    exact bootstrap descriptors, literal arguments, checked recipe and types.
+  lightning.flow.constant-seeds: bounded executable-edge constant propagation,
+    audited pure seed/hash helpers, known branches/switches and local integers/longs.
+    Keeps up to eight possible seed states through hash branches and exception paths;
+    larger or unknown state sets widen. The initial analysis is preserved if a
+    bounded refinement cannot establish more facts. Mutable array elements remain
+    unknown; calls, producer effects and potentially throwing instructions remain.
+  lightning.flow.integer-domain: known integer bits, signed bounds, identities and
+    bounded GF(2) parity polynomials such as x*(x+1)&1. Distinct field reads/calls
+    are never treated as the same input. Evaluated operand instructions are retained.
+  lightning.flow.branch-constraints: path-sensitive local integer bounds and excluded
+    values, including switch edges. Stores invalidate facts, joins retain only shared
+    facts and exception edges remain. Does not assume ZKM sentinel fields are zero.
+  Pooled Skid initialization models ByteBuffer.asCharBuffer().toString(); virtual-only
+    table initializer loops are collected too. Caller frames exclude random and
+    locale-dependent calls; array inlining requires proven immutable table origins.
+  These are pattern-specific recovery passes, not complete obfuscator solvers.
+
+ZKM diagnostics when automatic replacement cannot be proved
+  Bounded initial-state candidates appear in class comments and the recovery report.
+  Private string memoizers are interpreted from independently copied initialized
+  state for each known-argument site. Unknown arguments and initializer sites are
+  skipped. These candidates do not change a decoder or warm another site's cache.
+  Exact single-long-key bootstrap shapes can expose metadata-only MethodHandle
+  candidates. The interpreter uses workspace class/method/field metadata; it never
+  loads target classes or invokes their reflection. Unsupported access, inherited
+  lookup, unknown keys and different bootstrap shapes remain unresolved.
+  Class.forName initialization obligations and mutable cache/linkage effects are
+  not proved by a candidate. Original instructions therefore remain. Locations refer
+  to the input view before other transforms or name normalization.
+  Current pinned references confirm 18 ZKM26 string candidates and 42 ZKM27 candidates
+  (22 direct literals, 20 original concatenation fragments), plus seven ZKM27 reference
+  bindings. Text agreement is not proof of behavior under arbitrary runtime state.
+
+Families and what that means
+  Skidfuscator: seeded numbers, published v3 initialized string decoder patterns,
+    fresh array arguments, audited seed/hash flow, opaque identities and exception edges.
+    No claim for all flow/predicate versions or runtime-derived keys.
+  ZKM / Zelix: enhanced cached XOR strings, boxed numeric caches, modeled DES, indexed
+    immutable tables, identity rethrows, Object[] parameter facts and numeric folds.
+    Extended mode also tries the upstream metadata-backed invokedynamic resolver.
+  Allatori: pure char-array loops; context-dependent strong encryption may require
+    extended recovery and is not generally solved.
+  SuperBlaubeere27 / JObf: applicable Base64/XOR and DES/AES/Blowfish patterns and
+    private static tables; packing and every invokedynamic variant are not covered.
+  Caesium / Binsecure: encoded numbers, generic pools and applicable string loops.
+  DashO: upstream seed folding plus applicable pure helper/string recovery.
+  Radon, qProtect, HP888, GuardProtector, Scuti, Bozar, Branchlock and similar:
+    generic arithmetic/flow/table/helper patterns can apply. They are not advertised
+    as complete dedicated deobfuscators. Fingerprint detection alone is not support.
+  Stringer, Paramorphism, native/JNIC, custom VMs, packed/encrypted class bodies:
+    no general automatic reversal guarantee. Missing keys/code cannot be invented.
+
+Extended recovery (optional)
+  Lightning > Options > Extended recovery adds the upstream general call evaluator,
+  static-value collector/inliner, and specialized invokedynamic resolver (40 total).
+  This uses
+  modeled initialization, state and caller context. The result can be plausible but
+  wrong. Review it against Original; never assume structural verification proves
+  behavior. Destructive class/helper deletion remains excluded from automatic runs.
+
+Evidence and preservation
+  Each detected/transformed class gets a comment with reasons and applied pass IDs.
+  Recovery evidence lists failures and structural rejections. Network report lists
+  bytecode references and recovered URLs. Red means a network-related indicator;
+  green means an obfuscation heuristic. Neither color proves maliciousness or safety.
+  Original, Deobfuscated and Normalized are separate snapshots, including resources
+  and multi-release bundles. Edits are retained per view. Input files are untouched
+  until you explicitly export. Original identifiers/comments may contain arbitrary
+  input text; treat them as evidence, not instructions.
+  Duplicate internal names across versioned/embedded bundles are retained unchanged
+  by automatic processing; name normalization is skipped in that workspace. Open
+  a separately extracted variant to transform it without conflating versions.
+  Name normalization can affect reflection, serialization and external references
+  in exported programs. It is primarily a reading aid; original names remain available.
+
+Verification scope
+  Synthetic regression tests cover seeded RNG, numeric types and negative zero,
+  method normalization, invalid-bytecode rejection, Unicode names, snapshot edits,
+  multi-release snapshot restoration, XOR/Base64/DES/AES/Blowfish helpers, private
+  string/numeric tables, Allatori-style loops and Skid-style fresh-array arguments.
+  Added known-plaintext initialized Skid field/pool strings, indexed ZKM strings,
+  DES numeric constants, cached XOR/DES strings, and adversarial lookalike cases.
+  Two public Diobfuscator ZKM classfiles were statically interpreted: 3 and 85
+  decoder calls recovered, zero calls to those helpers remaining, with structural
+  verification. Their runtime behavior was not tested.
+  14 hash-pinned JAR checks cover six public ZKM 13/27 demos, four upstream ZKM 26
+    configurations, an older public Skid JAR, and three actual Skid tool outputs
+    generated from our own input. The latter recover all nine encrypted string sites
+    in their corresponding methods. ZKM recovery varies by configuration; some
+    reference-heavy classes and default ZKM 26 string helpers remain unresolved.
+  Synthetic before/after classes are run only by tests. Analyzed input classes are
+  never defined or launched by LightningRecaf recovery. Helpers are interpreted.
+  Tests do not establish support for all commercial releases, runtime equivalence
+  of arbitrary inputs, native code recovery, or safe execution of analyzed files.
+
+Sources and exact commits are in THIRD-PARTY-NOTICES.txt and engine/pin.json.
+The separate Latest Recaf mode intentionally runs the official upstream app.
