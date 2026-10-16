@@ -42,6 +42,7 @@ public final class TransformSafety {
             || type == GuardedFlowTransformer.class
             || type == IntegerDomainTransformer.class
             || type == BranchConstraintTransformer.class
+            || type == MixedBooleanArithmeticTransformer.class
             || type == recafx.deobf.ported.SeededRandomFoldingTransformer.class
             || type == recafx.deobf.ported.NumericEncodingFoldingTransformer.class
             || type == MethodNormalizingTransformer.class;

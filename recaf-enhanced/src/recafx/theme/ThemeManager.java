@@ -73,12 +73,15 @@ public class ThemeManager {
 			windowStyling.addStylesheet(base);
 			String baseUri = windowStyling.getStylesheetUris().isEmpty() ? null
 					: windowStyling.getStylesheetUris().getLast();
+			if (baseUri != null && mainStage.getScene() != null && !mainStage.getScene().getStylesheets().contains(baseUri))
+				mainStage.getScene().getStylesheets().add(baseUri);
 			if (baseUri != null)
 				for (Stage stage : windowManager.getActiveWindows())
 					if (stage.getScene() != null && !stage.getScene().getStylesheets().contains(baseUri))
 						stage.getScene().getStylesheets().add(baseUri);
 		}
 		wrapMainRoot();
+		attach(mainStage);
 		Window.getWindows().addListener(windowListener);
 		new ArrayList<>(Window.getWindows()).forEach(this::attach);
 		mainStage.iconifiedProperty().addListener((ob, old, cur) -> canvas.setActive(!cur));

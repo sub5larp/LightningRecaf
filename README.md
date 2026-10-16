@@ -50,7 +50,7 @@ with a simple path such as `C:\Tools\LightningRecaf`.
 
 - Automatic, bounded recovery for supported ZKM, Skidfuscator and other obfuscator
   patterns: strings, numeric encodings, static tables, opaque branches and metadata.
-- 36 automatic transformation passes; optional extended recovery enables 40.
+- 37 automatic transformation passes; optional extended recovery enables 41.
 - Original, deobfuscated and normalized views, with per-class recovery evidence
   and exportable Tiny v2 name mappings.
 - Decompiled-result caching, shared concurrent work, cancellation and editor
@@ -60,6 +60,12 @@ with a simple path such as `C:\Tools\LightningRecaf`.
 - A dark grayscale version of Recaf's R logo, configurable themes, gradients,
   animated backgrounds, translucent panels, rounding and reduced-motion options.
 - Optional Windows Open With, context-menu and Start Menu integration.
+- Integrated Ghidra native analysis: decompilation, assembly, P-code, flow graphs,
+  references, strings, symbols, imports, exports, types and memory maps.
+- Ghidra signatures, renaming, comments, byte patches, scripts, analyzer settings
+  and exports, with saved projects shared with the full Ghidra workbench.
+- Startup class caching and indexed service discovery. Fast starts skip the
+  preparation windows; the theme is applied before the first visible frame.
 
 Recovery depends on the actual bytecode and available state; an obfuscator name
 does not imply support for every version, configuration or layered combination.
@@ -70,6 +76,25 @@ distinguished from automatic replacements. See the in-app recovery report and
 Automatic JVM recovery applies to Java classfiles. Android archive associations
 do not imply equivalent recovery for arbitrary DEX or native code. The original
 input archive is preserved; exporting modified output is an explicit operation.
+
+## Native analysis
+
+Choose **Lightning → Ghidra workbench**, or right-click a workspace file and choose
+**Analyze with Ghidra**. Install the verified Ghidra 12.1.4 component from the pane
+(544 MB download), or select an existing installation. It loads only when used.
+For raw binaries, select the processor and compiler under **Import options**.
+
+Double-click a function to inspect its code, assembly, P-code, graph and references.
+Edits are saved in a separate Ghidra project; the input file stays unchanged.
+**Export** writes a new file. **Full Ghidra workbench** opens the same saved project
+for advanced tools, including its debugger, emulation, version tracking and BSim.
+**Run script** runs a script you select, using the installation's available script
+providers. Python scripts require the corresponding Ghidra Python environment.
+
+Ghidra's analyzers and native decompiler complement the JVM recovery pipeline;
+they do not supply additional ZKM or Skidfuscator Java deobfuscators. Recovery of
+those families uses LightningRecaf's dedicated passes. Startup time varies by
+machine and cache state; first launch and component installation take longer.
 
 ## Windows integration
 
@@ -102,7 +127,7 @@ powershell -ExecutionPolicy Bypass -File .\build-release.ps1
 
 The builder downloads the checksum-pinned official JDK if it is not cached, uses
 that JDK to compile the engine patches and plugin, builds the Windows application and emits
-the EXE and source ZIP under `dist\LightningRecaf-2.4.0`. An existing output folder
+the EXE and source ZIP under `dist\LightningRecaf-3.0.0`. An existing output folder
 is never overwritten. `-OutputDirectory`, `-WorkDirectory` and `-DownloadsDirectory`
 select alternate locations.
 

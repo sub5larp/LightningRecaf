@@ -48,7 +48,7 @@ function Get-LightningSourceFiles {
       'recaf-exe/app.manifest','recaf-exe/LightningRecaf.exe.config',
       'recaf-exe/assets/lightning.ico','recaf-exe/assets/lightning.png','recaf-exe/assets/recaf-dark-master.png',
       'standalone/Bootstrap.cs','standalone/runtime-pin.json')
-    foreach ($folder in 'engine-patches/src','recaf-enhanced/src','recaf-enhanced/resources','licenses') {
+    foreach ($folder in 'engine-patches/src','engine-patches/resources','recaf-enhanced/src','recaf-enhanced/resources','licenses') {
         Get-ChildItem -LiteralPath (Join-Path $projectRoot $folder) -File -Recurse | ForEach-Object {
             $_.FullName.Substring($projectRoot.Length + 1).Replace('\','/')
         }

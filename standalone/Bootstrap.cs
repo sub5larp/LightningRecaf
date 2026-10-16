@@ -15,8 +15,8 @@ using LightningRecaf.Updates;
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
 [assembly: AssemblyDescription("LightningRecaf standalone Windows application")]
-[assembly: AssemblyVersion("2.4.0.0")]
-[assembly: AssemblyFileVersion("2.4.0.0")]
+[assembly: AssemblyVersion("3.0.0.0")]
+[assembly: AssemblyFileVersion("3.0.0.0")]
 
 namespace LightningRecaf.Standalone
 {
@@ -163,7 +163,7 @@ namespace LightningRecaf.Standalone
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Exception failure = null;
-                using (var form = new Form()) {
+                using (var form = new DelayedForm()) {
                     form.Text = "LightningRecaf - " + AppUpdates.CurrentVersion.ToString(3);
                     form.ClientSize = new Size(390, 104);
                     form.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -176,13 +176,12 @@ namespace LightningRecaf.Standalone
                     var label = new Label { Text = "Preparing LightningRecaf…", AutoSize = true, Left = 22, Top = 22 };
                     var bar = new ProgressBar { Left = 22, Top = 58, Width = 346, Height = 18 };
                     form.Controls.Add(label); form.Controls.Add(bar);
-                    form.Shown += delegate {
-                        new Thread(delegate() {
+                    IntPtr dispatch = form.Handle;
+                    new Thread(delegate() {
                             try { EnsurePackage(cache, true, delegate(int percent) { form.BeginInvoke((Action)delegate { bar.Value = percent; }); }); }
                             catch (Exception ex) { failure = ex; }
                             finally { form.BeginInvoke((Action)delegate { form.Close(); }); }
-                        }) { IsBackground = true }.Start();
-                    };
+                    }) { IsBackground = true }.Start();
                     Application.Run(form);
                 }
                 if (failure != null) throw failure;
@@ -196,5 +195,17 @@ namespace LightningRecaf.Standalone
                 return 1;
             }
         }
+    }
+
+    internal sealed class DelayedForm : Form
+    {
+        readonly System.Windows.Forms.Timer reveal = new System.Windows.Forms.Timer { Interval = 1500 };
+        bool revealAllowed;
+        internal DelayedForm() {
+            reveal.Tick += delegate { reveal.Stop(); revealAllowed = true; Show(); };
+            reveal.Start();
+        }
+        protected override void SetVisibleCore(bool value) { base.SetVisibleCore(value && revealAllowed); }
+        protected override void Dispose(bool disposing) { if (disposing) reveal.Dispose(); base.Dispose(disposing); }
     }
 }

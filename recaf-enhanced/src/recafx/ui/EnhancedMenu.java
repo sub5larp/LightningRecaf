@@ -37,6 +37,7 @@ public class EnhancedMenu extends Menu {
 
 		void showAbout();
 		void openRecoveryReport();
+		void openGhidraWorkbench();
 	}
 
 	private final RadioMenuItem viewOriginal = new RadioMenuItem("Original");
@@ -88,7 +89,8 @@ public class EnhancedMenu extends Menu {
 
 		MenuItem about = item("About LightningRecaf", CarbonIcons.INFORMATION, host::showAbout);
 		MenuItem report = item("Recovery evidence & coverage...", CarbonIcons.REPORT, host::openRecoveryReport);
-		getItems().addAll(deobf, view, report, network, new SeparatorMenuItem(), theme, new SeparatorMenuItem(),
+		MenuItem nativeAnalysis = item("Ghidra workbench...", CarbonIcons.CODE, host::openGhidraWorkbench);
+		getItems().addAll(deobf, view, report, network, nativeAnalysis, new SeparatorMenuItem(), theme, new SeparatorMenuItem(),
 				recent, folder, closeTabs, new SeparatorMenuItem(), options, about);
 
 		Runnable sync = () -> FxThreadUtil.run(() -> {

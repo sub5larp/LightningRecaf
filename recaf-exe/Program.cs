@@ -25,8 +25,8 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
 [assembly: AssemblyDescription("LightningRecaf Java reverse engineering workbench")]
-[assembly: AssemblyVersion("2.4.0.0")]
-[assembly: AssemblyFileVersion("2.4.0.0")]
+[assembly: AssemblyVersion("3.0.0.0")]
+[assembly: AssemblyFileVersion("3.0.0.0")]
 
 namespace RecafExe
 {
@@ -87,7 +87,9 @@ namespace RecafExe
             var splash = new SplashForm();
             splash.Title = "LightningRecaf";
             var worker = new LaunchWorker(options, splash);
-            splash.Shown += delegate { new Thread(worker.Run) { IsBackground = true, Name = "recaf-launch" }.Start(); };
+            // Create the dispatch handle without displaying a window. Fast starts skip the splash.
+            IntPtr dispatch = splash.Handle;
+            new Thread(worker.Run) { IsBackground = true, Name = "recaf-launch" }.Start();
             // Errors are shown while the message loop is still running: once the main form has closed, a pending
             // WM_QUIT would dismiss any message box immediately.
             splash.BeforeClose = delegate
@@ -782,6 +784,7 @@ namespace RecafExe
 
             var sb = new StringBuilder();
             sb.Append(Native.Quote(java.JavaExe));
+            sb.Append(StartupCache.Arguments(java, classpath, jvmArgs));
             if (!string.IsNullOrEmpty(jvmArgs)) sb.Append(' ').Append(jvmArgs);
             sb.Append(" --enable-native-access=ALL-UNNAMED");
             sb.Append(' ').Append(Native.Quote("-DRECAF_DIR=" + Paths.CustomDataDir));
@@ -1077,6 +1080,8 @@ namespace RecafExe
         readonly Font titleFont = new Font("Segoe UI Semibold", 15f);
         readonly Font statusFont = new Font("Segoe UI", 9f);
         readonly System.Windows.Forms.Timer animation = new System.Windows.Forms.Timer { Interval = 16 };
+        readonly System.Windows.Forms.Timer reveal = new System.Windows.Forms.Timer { Interval = 3000 };
+        bool revealAllowed;
         readonly float scale;
         public string Title = "LightningRecaf";
         string status = "Starting...";
@@ -1101,7 +1106,9 @@ namespace RecafExe
                 marquee = (marquee + 0.012f) % 1.4f;
                 Invalidate();
             };
-            animation.Start();
+            reveal.Tick += delegate { reveal.Stop(); revealAllowed = true; Show(); animation.Start(); };
+            reveal.Start();
+            FormClosed += delegate { reveal.Dispose(); animation.Stop(); };
             // Allow dragging the borderless window around.
             MouseDown += delegate(object sender, MouseEventArgs e)
             {
@@ -1113,6 +1120,8 @@ namespace RecafExe
         }
 
         int S(int v) { return (int)Math.Round(v * scale); }
+
+        protected override void SetVisibleCore(bool value) { base.SetVisibleCore(value && revealAllowed); }
 
         protected override CreateParams CreateParams
         {
@@ -1216,6 +1225,7 @@ namespace RecafExe
             if (disposing)
             {
                 animation.Dispose();
+                reveal.Dispose();
                 titleFont.Dispose();
                 statusFont.Dispose();
                 if (logo != null) logo.Dispose();

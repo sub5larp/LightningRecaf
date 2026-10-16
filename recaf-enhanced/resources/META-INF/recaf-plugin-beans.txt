@@ -1,0 +1,3 @@
+recafx.RecafEnhancedPlugin
+recafx.deobf.GuardedStaticValueInliner
+recafx.deobf.PureCallFoldingTransformer

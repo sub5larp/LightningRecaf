@@ -465,6 +465,7 @@ public class AutoDeobfuscator {
 			case "lightning.skid.opaque-identities" -> "Integer/long opaque identities";
 			case "lightning.flow.integer-domain" -> "Known integer bits, ranges and polynomial predicates";
 			case "lightning.flow.branch-constraints" -> "Path-sensitive integer branch constraints";
+			case "lightning.flow.mixed-boolean-arithmetic" -> "32/64-bit mixed Boolean arithmetic predicates";
 			case "lightning.skid.exception-edges" -> "Proven throw-null control flow";
 			case "lightning.zkm.identity-rethrows" -> "ZKM identity rethrow bridges";
 			case "lightning.strings.constant-indy-concat" -> "Constant invokedynamic concatenation";

@@ -5,7 +5,8 @@ Copyright Matt Coley and Recaf contributors. MIT; licenses/Recaf-MIT.txt.
 Base revision: 17216bd3b76bc6ef36c4198262b5318e2936fbb7.
 The patch overlay modifies AbstractDecompilePane, DecompilerManager,
 StaticValueCollectionTransformer, InstanceFactory, OpaqueConstantFoldingTransformer,
-VariableFoldingTransformer and ZkmParameterUnpackingTransformer. Adapted recovery
+VariableFoldingTransformer, ZkmParameterUnpackingTransformer, DeadCodeRemovingTransformer,
+VariableTableNormalizingTransformer, PluginCdiContainer, UIMain and RecafApplication. Adapted recovery
 passes retain attribution in source. The dark grayscale R logo derives from
 Recaf's original logo. LightningRecaf is an independent fork.
 
@@ -16,7 +17,7 @@ encoding passes are identified in source, including upstream revisions.
 The combined enhancement plugin and corresponding source are supplied under
 GPL-3.0. Complete corresponding enhancement source and build scripts are provided
 in this repository and in the companion LightningRecaf-source.zip download at
-https://github.com/sub5larp/LightningRecaf/releases/tag/v2.3.2.
+https://github.com/sub5larp/LightningRecaf/releases.
 
 Skidfuscator: https://github.com/skidfuscatordev/skidfuscator-java-obfuscator
 Copyright (c) 2021 Shanyu Juneja. MIT; licenses/Skidfuscator-MIT.txt.
@@ -32,3 +33,9 @@ download locations and archive checksums are recorded in runtime-pin.json
 (standalone/runtime-pin.json in the source tree).
 
 ASM, JavaFX and other Recaf dependencies retain their notices in the engine JARs.
+
+Ghidra: https://github.com/NationalSecurityAgency/ghidra
+Copyright United States Government, National Security Agency and Ghidra contributors.
+Optional, separately downloaded component; Apache License 2.0. Its complete LICENSE,
+licenses directory and third-party notices remain in the installed distribution.
+The LightningRecaf bridge is original integration code using Ghidra's public APIs.

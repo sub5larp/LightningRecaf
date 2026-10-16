@@ -1,6 +1,6 @@
 LightningRecaf 2.3 - Recovery coverage and limits
 
-36 automatic transformers; up to 8 pipeline iterations by default (configurable 1-32).
+37 automatic transformers; up to 8 pipeline iterations by default (configurable 1-32).
 The pipeline applies supported patterns wherever their conditions match, without
 requiring an obfuscator name. Family labels are heuristic clues, not proof.
 
@@ -69,6 +69,12 @@ Targeted family recovery
   lightning.flow.branch-constraints: path-sensitive local integer bounds and excluded
     values, including switch edges. Stores invalidate facts, joins retain only shared
     facts and exception edges remain. Does not assume ZKM sentinel fields are zero.
+  lightning.flow.mixed-boolean-arithmetic: bounded 32/64-bit modular identities
+    combining XOR, AND, OR, addition, subtraction and constant multiplication.
+    Tracks input expressions across locals; conflicting joins become unknown.
+    Calls, separate field reads, exceptions and operand effects remain intact.
+  Cleanup preserves local type-annotation ranges and remaps annotation slots
+    together with normalized variables, including erased dead locals.
   Pooled Skid initialization models ByteBuffer.asCharBuffer().toString(); virtual-only
     table initializer loops are collected too. Caller frames exclude random and
     locale-dependent calls; array inlining requires proven immutable table origins.
@@ -111,7 +117,7 @@ Families and what that means
 
 Extended recovery (optional)
   Lightning > Options > Extended recovery adds the upstream general call evaluator,
-  static-value collector/inliner, and specialized invokedynamic resolver (40 total).
+  static-value collector/inliner, and specialized invokedynamic resolver (41 total).
   This uses
   modeled initialization, state and caller context. The result can be plausible but
   wrong. Review it against Original; never assume structural verification proves

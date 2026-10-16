@@ -17,5 +17,6 @@ public final class FamilyRecovery {
         manager.registerJvmClassTransformer(GuardedFlowTransformer.class, () -> new GuardedFlowTransformer(graphs));
         manager.registerJvmClassTransformer(IntegerDomainTransformer.class,IntegerDomainTransformer::new);
         manager.registerJvmClassTransformer(BranchConstraintTransformer.class,BranchConstraintTransformer::new);
+        manager.registerJvmClassTransformer(MixedBooleanArithmeticTransformer.class,MixedBooleanArithmeticTransformer::new);
     }
 }

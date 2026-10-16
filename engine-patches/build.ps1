@@ -9,5 +9,8 @@ $cp = (@($engineJar) + @(Get-ChildItem (Join-Path $engineRoot 'dependencies') -F
 $sources = @(Get-ChildItem (Join-Path $root 'src') -Recurse -Filter '*.java' | ForEach-Object FullName)
 & (Join-Path $jdk 'bin\javac.exe') --release 22 -encoding UTF-8 -proc:none -cp $cp -d $classes @sources
 if ($LASTEXITCODE) { throw 'Engine patch compilation failed' }
+if (Test-Path -LiteralPath (Join-Path $root 'resources')) {
+    Copy-Item -Path (Join-Path $root 'resources\*') -Destination $classes -Recurse -Force
+}
 & (Join-Path $jdk 'bin\jar.exe') --create --file (Join-Path $engineRoot 'LightningRecaf-patches.jar') -C $classes .
 if ($LASTEXITCODE) { throw 'Engine patch packaging failed' }

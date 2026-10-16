@@ -73,7 +73,7 @@ import java.util.Map;
 @PluginInformation(id = "recaf-enhanced", name = "LightningRecaf", version = recafx.theme.Branding.VERSION, author = "LightningRecaf contributors",
 		description = "Automatic deobfuscation with notes and original/deobfuscated/normalized views, theme chooser, " +
 				"multi-tab explorer, network/obfuscation highlighting and quality-of-life additions.")
-public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
+public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host, software.coley.recaf.StartupUiListener {
 	private static final Logger logger = Logging.get(RecafEnhancedPlugin.class);
 
 	// Core services (safe to resolve before the UI exists)
@@ -108,6 +108,9 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 	private EditorFlagger editorFlagger;
 	private StatusBar statusBar;
 	private Dockable networkDockable;
+	private Dockable ghidraDockable;
+	private recafx.ui.GhidraWorkbenchPane ghidraPane;
+	private software.coley.recaf.services.cell.context.FileContextMenuAdapter ghidraFileMenu;
 	private ThemeChooserWindow themeWindow;
 	private volatile boolean uiInstalled;
 	private volatile boolean disabled;
@@ -230,6 +233,8 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 		logger.info("LightningRecaf enabled");
 	}
 
+	@Override public void beforeMainWindowShown() { if (!disabled) installUi(); }
+
 	private void waitForMainWindow(int attempt) {
 		if (disabled) return;
 		if (attempt > 1200) {
@@ -260,6 +265,8 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 		deobfuscator.getExecutor().shutdownNow();
 		analysis.close();
 		FxThreadUtil.run(() -> {
+			if (ghidraPane != null) ghidraPane.close();
+			if (ghidraFileMenu != null) contextMenuProvider.get().removeFileContextMenuAdapter(ghidraFileMenu);
 			if (themeManager != null) themeManager.dispose();
 			if (explorerTabs != null) explorerTabs.dispose();
 			if (editorFlagger != null) {
@@ -324,6 +331,12 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 			statusBar.setManaged(config.getStatusBar().getValue());
 			MainMenu menu = mainMenuProvider.get();
 			menu.getMenus().add(new EnhancedMenu(this, workspaceManager, viewState, config));
+			ghidraFileMenu = (context, source, workspace, resource, bundle, info) -> {
+				javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Analyze with Ghidra");
+				item.setOnAction(event -> { openGhidraWorkbench(); ghidraPane.openBytes(info.getName(), info.getRawContent()); });
+				context.getItems().add(item);
+			};
+			contextMenuProvider.get().addFileContextMenuAdapter(ghidraFileMenu);
 			logger.info("LightningRecaf UI installed");
 		} catch (Throwable t) {
 			logger.error("LightningRecaf UI installation failed", t);
@@ -542,5 +555,19 @@ public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {
 		var window=new recafx.ui.RecoveryReportWindow(deobfuscator,analysis,viewState);
 		windowManagerProvider.get().registerAnonymous(window);
 		window.show();
+	}
+	@Override
+	public void openGhidraWorkbench() {
+		if (ghidraDockable != null) {
+			ghidraDockable.inContainer(leaf -> leaf.selectDockable(ghidraDockable));
+			return;
+		}
+		DockingManager docking = dockingManagerProvider.get();
+		ghidraPane = new recafx.ui.GhidraWorkbenchPane(directories.getBaseDirectory());
+		ghidraDockable = docking.newDockable("Ghidra", CarbonIcons.CODE, ghidraPane);
+		ghidraDockable.setClosable(true);
+		ghidraDockable.addCloseListener((path, dockable) -> { ghidraPane.close(); ghidraPane = null; ghidraDockable = null; });
+		docking.getPrimaryDockingContainer().addDockable(ghidraDockable);
+		docking.getPrimaryDockingContainer().selectDockable(ghidraDockable);
 	}
 }
