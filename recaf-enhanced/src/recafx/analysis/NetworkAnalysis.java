@@ -137,11 +137,14 @@ public final class NetworkAnalysis {
 	}
 
 	public static ClassFindings analyze(JvmClassInfo info) {
+		return analyze(info, null);
+	}
+
+	static ClassFindings analyze(JvmClassInfo info, org.objectweb.asm.tree.ClassNode node) {
 		List<Hit> hits = new ArrayList<>();
 		Set<String> seen = new LinkedHashSet<>();
 		try {
-			ClassReader reader = info.getClassReader();
-			reader.accept(new ClassVisitor(Opcodes.ASM9) {
+			ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9) {
 				@Override
 				public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
 					addType(hits, seen, superName, null, "extends");
@@ -198,7 +201,9 @@ public final class NetworkAnalysis {
 						}
 					};
 				}
-			}, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+			};
+			if (node == null) info.getClassReader().accept(visitor, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
+			else node.accept(visitor);
 		} catch (Throwable ignored) {
 			// Malformed class, report what we have.
 		}

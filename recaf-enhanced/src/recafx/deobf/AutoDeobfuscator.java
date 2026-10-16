@@ -257,9 +257,12 @@ public class AutoDeobfuscator {
 		AtomicInteger failures = new AtomicInteger();
 		Set<String> failedPairs = java.util.concurrent.ConcurrentHashMap.newKeySet();
 		Map<String, Set<String>> perClassTransformers = new TreeMap<>();
+		TransformSafety.EvaluationCache evaluationCache = new TransformSafety.EvaluationCache();
+		Map<WorkspaceResource, Integer> parameterPasses = new java.util.concurrent.ConcurrentHashMap<>();
 		TransformationFeedback feedback = new TransformationFeedback() {
 			@Override
 			public void onPhaseStart(@Nonnull TransformationPhase phase, int phaseIndex, int phaseCount) {
+				parameterPasses.clear();
 				report(Phase.TRANSFORMING, "Deobfuscating with " + transformers.size() + " transformers (" + maxPasses + " passes max)...", -1);
 			}
 
@@ -288,11 +291,18 @@ public class AutoDeobfuscator {
 			                               @Nonnull ClassBundle<?> bundle, @Nonnull ClassInfo classInfo,
 			                               @Nonnull ClassTransformer transformer, int pass) {
 				// A transformer that blew up on a class will blow up again next pass; skip it instead of spamming the log.
-				return activeWorkspace == workspace && !cancelRequested
+				boolean eligible = activeWorkspace == workspace && !cancelRequested
 						&& !duplicateNames.contains(classInfo.getName())
 						&& (duplicateNames.isEmpty() || !transformer.getClass().getSimpleName().equals("ZkmParameterUnpackingTransformer"))
-						&& (!(transformer instanceof JvmClassTransformer jvm) || !(classInfo instanceof software.coley.recaf.info.JvmClassInfo cls) || TransformSafety.shouldEvaluate(jvm, cls))
+						&& (!(transformer instanceof JvmClassTransformer jvm) || !(classInfo instanceof software.coley.recaf.info.JvmClassInfo cls) || evaluationCache.shouldEvaluate(jvm, cls))
 						&& !failedPairs.contains(classInfo.getName() + '|' + transformer.identifier());
+				if (eligible && transformer instanceof software.coley.recaf.services.deobfuscation.transform.specific.zkm.ZkmParameterUnpackingTransformer) {
+					// This transformer visits the entire resource itself. The applier joins all tasks
+					// before advancing to another transformer, so one invocation covers this pass.
+					Integer previousPass = parameterPasses.put(resource, pass);
+					return previousPass == null || previousPass != pass;
+				}
+				return eligible;
 			}
 
 			@Override

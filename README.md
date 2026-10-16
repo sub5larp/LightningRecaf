@@ -94,7 +94,7 @@ powershell -ExecutionPolicy Bypass -File .\build-release.ps1
 
 The builder downloads the checksum-pinned official JDK if it is not cached, uses
 that JDK to compile the engine patches and plugin, builds both launchers and emits
-the EXE and source ZIP under `dist\LightningRecaf-2.3.2`. An existing output folder
+the EXE and source ZIP under `dist\LightningRecaf-2.3.5`. An existing output folder
 is never overwritten. `-OutputDirectory`, `-WorkDirectory` and `-DownloadsDirectory`
 select alternate locations.
 

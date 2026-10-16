@@ -14,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
 [assembly: AssemblyDescription("LightningRecaf standalone Windows application")]
-[assembly: AssemblyVersion("2.3.2.0")]
-[assembly: AssemblyFileVersion("2.3.2.0")]
+[assembly: AssemblyVersion("2.3.5.0")]
+[assembly: AssemblyFileVersion("2.3.5.0")]
 
 namespace LightningRecaf.Standalone
 {

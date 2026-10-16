@@ -166,8 +166,11 @@ public class AnalysisService {
 			pool.execute(() -> {
 				try {
 					if (this.workspace != workspace) return;
-					var net = NetworkAnalysis.analyze(cls);
-					var obf = ObfuscationAnalysis.analyzeClass(cls);
+					org.objectweb.asm.tree.ClassNode node = new org.objectweb.asm.tree.ClassNode();
+					try { cls.getClassReader().accept(node, org.objectweb.asm.ClassReader.SKIP_FRAMES); }
+					catch (Throwable malformed) { node = null; }
+					var net = NetworkAnalysis.analyze(cls, node);
+					var obf = ObfuscationAnalysis.analyzeClass(cls, node);
 					synchronized (this) {
 						if (ticket != generation) return;
 						cacheNetwork(cls, net);

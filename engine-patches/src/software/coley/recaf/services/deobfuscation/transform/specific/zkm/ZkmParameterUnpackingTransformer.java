@@ -93,7 +93,7 @@ public class ZkmParameterUnpackingTransformer implements JvmClassTransformer {
 	private final InheritanceGraphService graphService;
 	private InheritanceGraph inheritanceGraph;
 	private boolean processed;
-	private Map<String, NodeState> processedNodes = Map.of();
+	private Map<String, byte[]> processedNodes = Map.of();
 	private Set<String> participantClasses = Set.of();
 	private final Set<ParameterKey> seededParameters = new HashSet<>();
 
@@ -193,11 +193,9 @@ public class ZkmParameterUnpackingTransformer implements JvmClassTransformer {
 	 * 		Working classes to record.
 	 */
 	private void rememberNodes(@Nonnull JvmTransformerContext context, @Nonnull Map<String, WorkingClass> classes) {
-		Map<String, NodeState> committedNodes = new HashMap<>();
-		for (WorkingClass workingClass : classes.values()) {
-			ClassNode node = context.getNode(workingClass.bundle, workingClass.info);
-			committedNodes.put(workingClass.node.name, new NodeState(node, fingerprint(node)));
-		}
+		Map<String, byte[]> committedNodes = new HashMap<>();
+		for (WorkingClass workingClass : classes.values())
+			committedNodes.put(workingClass.node.name, context.getBytecode(workingClass.bundle, workingClass.info));
 		processedNodes = Map.copyOf(committedNodes);
 	}
 
@@ -210,67 +208,18 @@ public class ZkmParameterUnpackingTransformer implements JvmClassTransformer {
 	 * @return {@code true} when the workspace has changed since the last pass, {@code false} otherwise.
 	 */
 	private boolean hasCurrentNodesChanged(@Nonnull JvmTransformerContext context, @Nonnull WorkspaceResource resource) {
-		Map<String, NodeState> currentNodes = new HashMap<>();
+		// getNode() returns a fresh defensive copy on every call. Comparing node identities
+		// therefore invalidated every lookup and re-analyzed the entire archive for each class.
+		// getBytecode() retains its identity until a committed node/bytecode update invalidates it.
+		Map<String, byte[]> currentNodes = new HashMap<>();
 		resource.jvmAllClassBundleStreamRecursive().forEach(bundle -> bundle.forEach(info -> {
-			if (!currentNodes.containsKey(info.getName())) {
-				ClassNode node = context.getNode(bundle, info);
-				currentNodes.put(info.getName(), new NodeState(node, fingerprint(node)));
-			}
+			if (!currentNodes.containsKey(info.getName()))
+				currentNodes.put(info.getName(), context.getBytecode(bundle, info));
 		}));
-		if (currentNodes.size() != processedNodes.size())
-			return true;
-		for (Map.Entry<String, NodeState> entry : currentNodes.entrySet()) {
-			NodeState previous = processedNodes.get(entry.getKey());
-			if (previous == null || previous.node != entry.getValue().node || previous.fingerprint != entry.getValue().fingerprint)
-				return true;
-		}
+		if (currentNodes.size() != processedNodes.size()) return true;
+		for (Map.Entry<String, byte[]> entry : currentNodes.entrySet())
+			if (processedNodes.get(entry.getKey()) != entry.getValue()) return true;
 		return false;
-	}
-
-	/**
-	 * Hashes structurally relevant class content so in-place edits made by other transformers become visible.
-	 *
-	 * @param node
-	 * 		Class to fingerprint.
-	 *
-	 * @return Content hash of the class.
-	 */
-	private static int fingerprint(@Nonnull ClassNode node) {
-		int hash = 1;
-		hash = 31 * hash + node.version;
-		hash = 31 * hash + node.access;
-		hash = 31 * hash + Objects.hashCode(node.name);
-		for (MethodNode method : node.methods) {
-			hash = 31 * hash + Objects.hashCode(method.name);
-			hash = 31 * hash + Objects.hashCode(method.desc);
-			hash = 31 * hash + method.access;
-			if (method.instructions == null)
-				continue;
-
-			// Only hash instructions relevant to parameter data flow.
-			for (AbstractInsnNode instruction : method.instructions) {
-				hash = 31 * hash + instruction.getType();
-				hash = 31 * hash + instruction.getOpcode();
-				switch (instruction) {
-					case VarInsnNode variable -> hash = 31 * hash + variable.var;
-					case IntInsnNode integer -> hash = 31 * hash + integer.operand;
-					case LdcInsnNode ldc -> hash = 31 * hash + Objects.hashCode(ldc.cst);
-					case TypeInsnNode type -> hash = 31 * hash + Objects.hashCode(type.desc);
-					case MethodInsnNode call -> {
-						hash = 31 * hash + Objects.hashCode(call.owner);
-						hash = 31 * hash + Objects.hashCode(call.name);
-						hash = 31 * hash + Objects.hashCode(call.desc);
-					}
-					case InvokeDynamicInsnNode indy -> {
-						hash = 31 * hash + Objects.hashCode(indy.name);
-						hash = 31 * hash + Objects.hashCode(indy.desc);
-						hash = 31 * hash + Objects.hashCode(indy.bsm);
-					}
-					default -> {}
-				}
-			}
-		}
-		return hash;
 	}
 
 	/**
@@ -288,9 +237,7 @@ public class ZkmParameterUnpackingTransformer implements JvmClassTransformer {
 		resource.jvmAllClassBundleStreamRecursive().forEach(bundle -> bundle.forEach(info -> {
 			if (classes.containsKey(info.getName()))
 				return;
-			ClassNode current = context.getNode(bundle, info);
-			ClassNode copy = new ClassNode();
-			current.accept(copy);
+			ClassNode copy = context.getNode(bundle, info);
 			classes.put(info.getName(), new WorkingClass(bundle, info, copy));
 		}));
 		return classes;
@@ -1228,16 +1175,6 @@ public class ZkmParameterUnpackingTransformer implements JvmClassTransformer {
 			return current.kind == incoming.kind ? PrimitiveFact.UNKNOWN : PrimitiveFact.CONFLICT;
 		return current.kind == incoming.kind && Objects.equals(current.value, incoming.value) ? current : PrimitiveFact.CONFLICT;
 	}
-
-	/**
-	 * Recorded node identity and content marker used to detect outside edits between applier passes.
-	 *
-	 * @param node
-	 * 		Class node as seen when the batch was recorded.
-	 * @param fingerprint
-	 * 		Content hash of that node.
-	 */
-	private record NodeState(@Nonnull ClassNode node, int fingerprint) {}
 
 	/**
 	 * Mutable working copy of one class, committed only when something actually changed.

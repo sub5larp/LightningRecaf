@@ -108,6 +108,14 @@ public class PureCallFoldingTransformer implements JvmClassTransformer {
 			InsnList instructions = method.instructions;
 			if (instructions == null)
 				continue;
+			boolean hasCandidate = false;
+			for (AbstractInsnNode insn : instructions)
+				if (insn instanceof MethodInsnNode call && call.getOpcode() == Opcodes.INVOKESTATIC
+						&& java.util.Arrays.stream(Type.getArgumentTypes(call.desc)).allMatch(EvaluationPolicy::immutableArgument)) {
+					hasCandidate = true;
+					break;
+				}
+			if (!hasCandidate) continue;
 
 			Frame<ReValue>[] frames;
 			try {
@@ -120,12 +128,13 @@ public class PureCallFoldingTransformer implements JvmClassTransformer {
 			for (int i = instructions.size() - 1; i >= 0; i--) {
 				AbstractInsnNode insn = instructions.get(i);
 				if (insn.getOpcode() == Opcodes.INVOKESTATIC && insn instanceof MethodInsnNode min) {
+					Type methodType = Type.getMethodType(min.desc);
+					if (!java.util.Arrays.stream(methodType.getArgumentTypes()).allMatch(EvaluationPolicy::immutableArgument)) continue;
 					Frame<ReValue> frame = frames[i];
 					if (frame == null)
 						continue;
 
 					// Collect arguments.
-					Type methodType = Type.getMethodType(min.desc);
 					List<ReValue> arguments = new ArrayList<>(methodType.getArgumentCount());
 					for (int j = 0; j < methodType.getArgumentCount(); j++)
 						arguments.addFirst(frame.getStack(frame.getStackSize() - 1 - j));
@@ -137,7 +146,6 @@ public class PureCallFoldingTransformer implements JvmClassTransformer {
 					// Target method must be able to be evaluated.
 					ClassMethodPair target = context.resolveMethod(min);
 					if (target == null || !target.classNode().name.equals(node.name) && target.classNode().methods.stream().anyMatch(m -> m.name.equals("<clinit>"))
-                            || !java.util.Arrays.stream(methodType.getArgumentTypes()).allMatch(EvaluationPolicy::immutableArgument)
                             || !EvaluationPolicy.pure(context, target.classNode(), target.methodNode()))
 						continue;
 					if (!evaluator.canEvaluate(target.methodNode()))

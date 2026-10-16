@@ -130,17 +130,22 @@ public final class ObfuscationAnalysis {
 	}
 
 	public static ClassReport analyzeClass(JvmClassInfo info) {
-		List<String> reasons = new ArrayList<>();
-		Set<String> fingerprints = new LinkedHashSet<>();
-		int score = 0;
-		String className = info.getName();
 		ClassNode node = new ClassNode();
 		try {
 			info.getClassReader().accept(node, ClassReader.SKIP_FRAMES);
 		} catch (Throwable t) {
-			reasons.add("class could not be parsed (" + t.getClass().getSimpleName() + ")");
-			return new ClassReport(className, THRESHOLD, reasons, fingerprints);
+			return new ClassReport(info.getName(), THRESHOLD,
+					List.of("class could not be parsed (" + t.getClass().getSimpleName() + ")"), Set.of());
 		}
+		return analyzeClass(info, node);
+	}
+
+	static ClassReport analyzeClass(JvmClassInfo info, ClassNode node) {
+		if (node == null) return analyzeClass(info);
+		List<String> reasons = new ArrayList<>();
+		Set<String> fingerprints = new LinkedHashSet<>();
+		int score = 0;
+		String className = info.getName();
 
 		// --- Names -------------------------------------------------------------------------------
 		int illegal = 0, confusable = 0, single = 0, members = 0;

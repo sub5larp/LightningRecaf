@@ -8,6 +8,8 @@ import javafx.stage.Stage;
 
 /** Product identity without removing upstream license or contributor attribution. */
 public final class Branding {
+    public static final String VERSION = "2.3.5";
+    public static final String TITLE = "LightningRecaf - " + VERSION;
     private Branding() {}
     public static void install(Stage main) {
         // Plugin resources have Recaf's custom URL scheme; JavaFX cannot reopen those URLs itself.
@@ -24,7 +26,8 @@ public final class Branding {
         replaceWelcome(main.getScene().getRoot(), false);
     }
     private static String title(String value) {
-        if (value == null || value.isBlank()) return "LightningRecaf";
+        if (value == null || value.isBlank() || value.equals("Recaf") || value.equals("LightningRecaf")
+                || value.matches("LightningRecaf - \\d+(?:\\.\\d+)+")) return TITLE;
         return value.replaceAll("(?<!Lightning)Recaf", "LightningRecaf");
     }
     private static void replaceWelcome(Node node, boolean welcome) {

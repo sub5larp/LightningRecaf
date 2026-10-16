@@ -53,11 +53,30 @@ public final class TransformSafety {
     }
 
     public static boolean shouldEvaluate(JvmClassTransformer transformer, JvmClassInfo info) {
-        if (!transformer.identifier().startsWith("peephole.data.") && !transformer.identifier().contains("opaque")
-                && !(transformer instanceof GuardedStaticValueInliner)) return true;
+        return !requiresAudit(transformer) || environmentIndependent(info);
+    }
+    private static boolean requiresAudit(JvmClassTransformer transformer) {
+        return transformer.identifier().startsWith("peephole.data.") || transformer.identifier().contains("opaque")
+                || transformer instanceof GuardedStaticValueInliner;
+    }
+    private static boolean environmentIndependent(JvmClassInfo info) {
         ClassNode node = new ClassNode();
         info.getClassReader().accept(node, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         return !EvaluationPolicy.hasEnvironmentDependentCalls(node);
+    }
+
+    /** One audit per immutable input object, scoped to a single recovery run. */
+    public static final class EvaluationCache {
+        private final java.util.Map<JvmClassInfo, Boolean> results = new java.util.IdentityHashMap<>();
+        public boolean shouldEvaluate(JvmClassTransformer transformer, JvmClassInfo info) {
+            if (!requiresAudit(transformer)) return true;
+            Boolean cached;
+            synchronized (results) { cached = results.get(info); }
+            if (cached != null) return cached;
+            boolean allowed = environmentIndependent(info);
+            synchronized (results) { results.put(info, allowed); }
+            return allowed;
+        }
     }
 
     /** Structural/data-flow check only: never loads the analyzed class or resolves it through reflection. */

@@ -209,8 +209,8 @@ public class ThemeManager {
 		Color border = base.interpolate(Color.WHITE, 0.22);
 		Color borderMuted = base.interpolate(Color.WHITE, 0.12);
 		Color borderSubtle = base.interpolate(Color.WHITE, 0.08);
-		String selection = Fx.hex(base.interpolate(accent, 0.16));
-		String selectionBorder = Fx.hex(base.interpolate(accent, 0.30));
+		String selection = Fx.hex(base.interpolate(accent, 0.10));
+		String selectionBorder = Fx.hex(base.interpolate(accent, 0.22));
 		int radius = config.getRounded().getValue() ? Math.max(0, config.getCornerRadius().getValue()) : 0;
 		StringBuilder css = new StringBuilder();
 		css.append(".root {\n");

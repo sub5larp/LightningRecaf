@@ -70,7 +70,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@PluginInformation(id = "recaf-enhanced", name = "LightningRecaf", version = "2.3", author = "LightningRecaf contributors",
+@PluginInformation(id = "recaf-enhanced", name = "LightningRecaf", version = recafx.theme.Branding.VERSION, author = "LightningRecaf contributors",
 		description = "Automatic deobfuscation with notes and original/deobfuscated/normalized views, theme chooser, " +
 				"multi-tab explorer, network/obfuscation highlighting and quality-of-life additions.")
 public class RecafEnhancedPlugin implements Plugin, EnhancedMenu.Host {

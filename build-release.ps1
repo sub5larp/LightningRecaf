@@ -1,5 +1,5 @@
 param(
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist\LightningRecaf-2.3.2'),
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist\LightningRecaf-2.3.5'),
     [string]$WorkDirectory = (Join-Path $PSScriptRoot 'build\release'),
     [string]$DownloadsDirectory = (Join-Path $PSScriptRoot 'build\downloads')
 )

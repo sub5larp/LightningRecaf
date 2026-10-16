@@ -33,13 +33,14 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
 [assembly: AssemblyDescription("LightningRecaf reverse engineering workbench and upstream Recaf launcher")]
-[assembly: AssemblyVersion("2.3.2.0")]
-[assembly: AssemblyFileVersion("2.3.2.0")]
+[assembly: AssemblyVersion("2.3.5.0")]
+[assembly: AssemblyFileVersion("2.3.5.0")]
 
 namespace RecafExe
 {
     static class Program
     {
+        internal static readonly string WindowTitle = "LightningRecaf - " + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
         [STAThread]
         static int Main(string[] args)
         {
@@ -1516,7 +1517,7 @@ namespace RecafExe
         public SplashForm()
         {
             using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = g.DpiX / 96f;
-            Text = "LightningRecaf";
+            Text = Program.WindowTitle;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(S(400), S(108));

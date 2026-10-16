@@ -26,10 +26,10 @@ public final class ExpressionFoldingTransformer implements JvmClassTransformer, 
             if (!(insn instanceof MethodInsnNode call) || call.getOpcode() != INVOKESTATIC) continue;
             Type resultType = Type.getReturnType(call.desc);
             if (resultType.getSort() == Type.VOID || !EvaluationPolicy.immutableArgument(resultType)) continue;
-            var target = context.resolveMethod(call);
-            if (target == null) continue;
             AbstractInsnNode first = expressionStart(call, 0);
-            if (first == null || ++attempts > 512) continue;
+            if (first == null) continue;
+            var target = context.resolveMethod(call);
+            if (target == null || ++attempts > 512) continue;
             MethodNode expression = new MethodNode(ACC_PRIVATE | ACC_STATIC, "lightning$expression", "()" + resultType.getDescriptor(), null, null);
             for (AbstractInsnNode n = first; n != call.getNext(); n = n.getNext()) expression.instructions.add(n.clone(new HashMap<>()));
             expression.instructions.add(new InsnNode(resultType.getOpcode(IRETURN)));

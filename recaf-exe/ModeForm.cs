@@ -28,7 +28,7 @@ namespace RecafExe
         public ModeForm(string defaultMode, string fileToOpen)
         {
             using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = g.DpiX / 96f;
-            Text = "LightningRecaf";
+            Text = Program.WindowTitle;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Background;
