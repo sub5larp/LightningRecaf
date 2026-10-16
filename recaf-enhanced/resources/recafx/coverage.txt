@@ -153,4 +153,3 @@ Verification scope
   of arbitrary inputs, native code recovery, or safe execution of analyzed files.
 
 Sources and exact commits are in THIRD-PARTY-NOTICES.txt and engine/pin.json.
-The separate Latest Recaf mode intentionally runs the official upstream app.

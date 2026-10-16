@@ -6,7 +6,7 @@ A Recaf-based Java reverse-engineering workbench with automatic deobfuscation,
 normalization, a customizable grayscale interface, and portable Windows packaging.
 
 LightningRecaf is an independent project based on [Recaf](https://github.com/Col-E/Recaf)
-by Matt Coley and contributors. This repository contains the launcher, enhancement
+by Matt Coley and contributors. This repository contains the Windows entry point, enhancement
 plugin, branding assets, and source for the patched engine components. The custom
 engine is pinned to Recaf commit `17216bd3b76bc6ef36c4198262b5318e2936fbb7`.
 
@@ -22,9 +22,17 @@ The two release downloads are:
 - **LightningRecaf-source.zip** — source, build scripts, assets, pinned engine
   dependencies and matching OpenJDK source for this release.
 
-Choose **LightningRecaf** for the bundled custom version, which works offline.
-Choose **Latest Recaf** to download and run upstream Recaf. Hold Shift at launch
-or pass `--ask` to show the chooser again.
+The EXE opens LightningRecaf directly. It checks this repository's stable GitHub
+releases in the background, downloads a newer EXE, verifies its SHA-256 digest and
+version, and uses it automatically on the next launch. An open workspace is never
+restarted for an update. Offline or failed checks keep the installed version usable.
+
+Checks run at most once every 15 minutes when the app is launched. Updates stay in
+the data folder, preserving settings and portable installations; the downloaded
+EXE remains a stable entry point. Pass `--no-update` to run that EXE's bundled version
+without checking, or set `auto-update=false` in
+`%LOCALAPPDATA%\LightningRecaf\data\launcher\recaf-exe.ini` to disable automatic
+updates. Extracted copies use `data\launcher\recaf-exe.ini` beside their EXE.
 
 On first launch the EXE prepares its bundled files under
 `%LOCALAPPDATA%\LightningRecaf\app`. Settings, plugins, logs and caches live under
@@ -79,7 +87,7 @@ LightningRecaf registration for that account; it does not force Windows file def
 Open a file through the application, drag it onto the executable, or pass its path:
 
 ```powershell
-.\LightningRecaf.exe --custom "C:\Samples\example.jar"
+.\LightningRecaf.exe "C:\Samples\example.jar"
 ```
 
 ## Build from source
@@ -93,8 +101,8 @@ powershell -ExecutionPolicy Bypass -File .\build-release.ps1
 ```
 
 The builder downloads the checksum-pinned official JDK if it is not cached, uses
-that JDK to compile the engine patches and plugin, builds both launchers and emits
-the EXE and source ZIP under `dist\LightningRecaf-2.3.5`. An existing output folder
+that JDK to compile the engine patches and plugin, builds the Windows application and emits
+the EXE and source ZIP under `dist\LightningRecaf-2.4.0`. An existing output folder
 is never overwritten. `-OutputDirectory`, `-WorkDirectory` and `-DownloadsDirectory`
 select alternate locations.
 

@@ -37,7 +37,7 @@ $cscArgs = @(
     "/r:System.dll", "/r:System.Core.dll", "/r:System.Drawing.dll", "/r:System.Windows.Forms.dll",
     "/r:System.Xml.dll", "/r:$fw\System.Web.Extensions.dll", "/r:$fw\System.IO.Compression.dll"
 )
-# The LightningRecaf plugin (custom mode) is embedded when its jar has been built (..\recaf-enhanced\build.ps1).
+# Embed the matching LightningRecaf plugin (..\recaf-enhanced\build.ps1).
 $pluginJar = Join-Path (Split-Path $root -Parent) "recaf-enhanced\build\recaf-enhanced.jar"
 if (Test-Path $pluginJar) {
     $cscArgs += "/resource:$pluginJar,recaf-enhanced.jar"

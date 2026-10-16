@@ -1,5 +1,5 @@
 // Windows shell integration for LightningRecaf.exe: taskbar identity + grouping, jump list, Start Menu shortcut,
-// "Open in Recaf" context menu entries.
+// "Open with LightningRecaf" context menu entries.
 
 using System;
 using System.Collections.Generic;
@@ -20,7 +20,7 @@ namespace RecafExe
         /// <summary>Set by tests to install for a different exe than the running one.</summary>
         public static string ExePathOverride;
 
-        public static string ExePath { get { return ExePathOverride ?? System.Windows.Forms.Application.ExecutablePath; } }
+        public static string ExePath { get { return ExePathOverride ?? LightningRecaf.Updates.AppUpdates.EntryExecutable(System.Windows.Forms.Application.ExecutablePath); } }
 
         /// <summary>Gives this process an explicit AppUserModelID so Recaf's window can be grouped under it.</summary>
         public static void SetProcessAppId()
@@ -36,7 +36,7 @@ namespace RecafExe
             {
                 Directory.CreateDirectory(Paths.LauncherDir);
                 string marker = Path.Combine(Paths.LauncherDir, "lightning-integration.txt");
-                string current = ExePath + "|4";
+                string current = ExePath + "|5";
                 string previous = File.Exists(marker) ? File.ReadAllText(marker).Trim() : "";
                 if (force || previous != current)
                 {
@@ -191,11 +191,8 @@ namespace RecafExe
                 }
             }
 
-            // Tasks: open either mode, and re-ask.
             var tasks = (IObjectCollection)new EnumerableObjectCollection();
-            tasks.AddObject(MakeLink("Open Recaf (latest)", "--latest", 0));
-            tasks.AddObject(MakeLink("Open LightningRecaf (custom)", "--custom", 0));
-            tasks.AddObject(MakeLink("Choose mode...", "--ask", 0));
+            tasks.AddObject(MakeLink("Open LightningRecaf", "", 0));
             list.AddUserTasks((IObjectArray)tasks);
 
             // Recent workspaces from Recaf's own config.
@@ -220,7 +217,7 @@ namespace RecafExe
         static List<string> ReadRecentWorkspaces()
         {
             var result = new List<string>();
-            foreach (var profile in new[] { Paths.CustomDataDir, Paths.RecafDir })
+            foreach (var profile in new[] { Paths.CustomDataDir })
             {
             try
             {

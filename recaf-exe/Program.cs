@@ -1,12 +1,4 @@
-// LightningRecaf.exe - native Windows launcher for Recaf 4.
-//
-// Does what the official Recaf launcher's "update and run" mode does, without needing a .jar:
-//   1. Pulls the newest Recaf snapshot build from GitHub Actions (same source/rules as the official launcher).
-//   2. Makes sure a compatible JavaFX is cached in %APPDATA%\Recaf\dependencies (Maven Central, SHA-1 verified).
-//   3. Finds a JDK that can run Recaf (22+) and starts Recaf with a hidden-console java.exe, like the official launcher.
-//
-// Data layout is shared with the official launcher, so both can be used side by side.
-// Build with build.ps1 (uses the C# compiler that ships with Windows' .NET Framework 4.x).
+// LightningRecaf Windows application entry point.
 
 using System;
 using System.Collections;
@@ -26,15 +18,15 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
-using System.Xml;
+using LightningRecaf.Updates;
 using Microsoft.Win32;
 
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
-[assembly: AssemblyDescription("LightningRecaf reverse engineering workbench and upstream Recaf launcher")]
-[assembly: AssemblyVersion("2.3.5.0")]
-[assembly: AssemblyFileVersion("2.3.5.0")]
+[assembly: AssemblyDescription("LightningRecaf Java reverse engineering workbench")]
+[assembly: AssemblyVersion("2.4.0.0")]
+[assembly: AssemblyFileVersion("2.4.0.0")]
 
 namespace RecafExe
 {
@@ -44,6 +36,12 @@ namespace RecafExe
         [STAThread]
         static int Main(string[] args)
         {
+            if (args.Length == 1 && args[0] == "--update-check") {
+                AppUpdates.Check(Paths.LightningDir, AppUpdates.CurrentVersion);
+                return 0;
+            }
+            string entry = AppUpdates.EntryExecutable(Application.ExecutablePath);
+            if (AppUpdates.TryLaunchReady(Paths.LightningDir, AppUpdates.CurrentVersion, entry, args)) return 0;
             Log.Init(Paths.ExeLog);
             Log.Info("LightningRecaf.exe started, args: [" + string.Join(", ", args) + "]");
             try
@@ -85,32 +83,9 @@ namespace RecafExe
             }
             ShellIntegration.EnsureInstalled(config, false);
 
-            // Mode: "latest" (plain Recaf) or "custom" (Recaf + the LightningRecaf plugin).
-            string mode = options.Mode;
-            bool shiftHeld = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
-            if (mode == null && !options.Ask && !shiftHeld)
-            {
-                string remembered = config.Get("mode", "ask").ToLowerInvariant();
-                if (remembered == "latest" || remembered == "custom") mode = remembered;
-            }
-            if (mode == null)
-            {
-                var modeForm = new ModeForm(config.Get("last-mode", "custom"), options.FileToOpen);
-                Application.Run(modeForm);
-                if (modeForm.Choice == null)
-                {
-                    Log.Info("Mode selection cancelled");
-                    return 0;
-                }
-                mode = modeForm.Choice;
-                config.Set("mode", modeForm.Remember ? mode : "ask");
-            }
-            config.Set("last-mode", mode);
-            options.Custom = mode == "custom";
-            Log.Info("Mode: " + mode);
-
+            AppUpdates.StartBackgroundCheck(Paths.LightningDir, entry, args);
             var splash = new SplashForm();
-            splash.Title = options.Custom ? "LightningRecaf" : "Latest Recaf";
+            splash.Title = "LightningRecaf";
             var worker = new LaunchWorker(options, splash);
             splash.Shown += delegate { new Thread(worker.Run) { IsBackground = true, Name = "recaf-launch" }.Start(); };
             // Errors are shown while the message loop is still running: once the main form has closed, a pending
@@ -149,12 +124,8 @@ namespace RecafExe
 
     class LaunchOptions
     {
-        public bool SkipUpdate;
-        public bool Ask;
         public bool Install;
         public bool Uninstall;
-        public bool Custom;
-        public string Mode;        // "latest" / "custom" from the command line, otherwise null
         public string FileToOpen;  // display name of the dropped / "Open with" file, if any
         public string InputError;
         public List<string> RecafArgs = new List<string>();
@@ -168,10 +139,8 @@ namespace RecafExe
             {
                 if (literal) { rest.Add(a); continue; }
                 if (a == "--") { literal = true; continue; }
-                if (a.Equals("--no-update", StringComparison.OrdinalIgnoreCase)) o.SkipUpdate = true;
-                else if (a.Equals("--latest", StringComparison.OrdinalIgnoreCase)) o.Mode = "latest";
-                else if (a.Equals("--custom", StringComparison.OrdinalIgnoreCase) || a.Equals("--enhanced", StringComparison.OrdinalIgnoreCase)) o.Mode = "custom";
-                else if (a.Equals("--ask", StringComparison.OrdinalIgnoreCase)) o.Ask = true;
+                // Accept old shortcut flags, but always start LightningRecaf.
+                if (new[] { "--no-update", "--latest", "--custom", "--enhanced", "--ask" }.Contains(a, StringComparer.OrdinalIgnoreCase)) continue;
                 else if (a.Equals("--install", StringComparison.OrdinalIgnoreCase)) o.Install = true;
                 else if (a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase)) o.Uninstall = true;
                 else rest.Add(a);
@@ -218,7 +187,7 @@ namespace RecafExe
             catch (Exception e)
             {
                 Log.Error("Unexpected failure", e);
-                FailureMessage = "Recaf could not be started:\n" + e.Message;
+                FailureMessage = "LightningRecaf could not be started:\n" + e.Message;
             }
             ui.CloseFromWorker();
         }
@@ -229,57 +198,31 @@ namespace RecafExe
             Directory.CreateDirectory(Paths.RecafDir);
             Directory.CreateDirectory(Paths.LauncherDir);
 
-            bool autoUpdate = !options.Custom && config.GetBool("auto-update", true) && !options.SkipUpdate;
-            string engineJar = options.Custom ? CustomEngine.Jar : Paths.RecafJar;
-            if (options.Custom) CustomEngine.Validate();
-
-            // Serialise the update phase across concurrent launches so two instances never write the same files.
-            using (var mutex = new Mutex(false, "Local\\RecafExeUpdate"))
+            CustomEngine.Validate();
+            string engineJar = CustomEngine.Jar;
+            using (var mutex = new Mutex(false, "Local\\LightningRecafPrepare"))
             {
                 bool owned = false;
                 try
                 {
                     try { owned = mutex.WaitOne(TimeSpan.FromMinutes(3)); }
                     catch (AbandonedMutexException) { owned = true; }
-                    if (!owned)
-                    {
-                        FailureMessage = "Another Recaf launcher is still preparing its runtime. Wait for it to finish and try again.";
-                        return;
-                    }
-
-                    if (autoUpdate)
-                    {
-                        ui.SetStatus("Checking for Recaf updates...", -1);
-                        try
-                        {
-                            RecafUpdater.Update(config.Get("branch", "master"), ui);
-                        }
-                        catch (Exception e)
-                        {
-                            Log.Error("Recaf update failed, continuing with installed version", e);
-                        }
-                    }
-
-                    if (!File.Exists(engineJar))
-                    {
-                        FailureMessage = autoUpdate
-                            ? "Recaf is not installed and the download failed. Check your internet connection and try again."
-                            : "The selected engine is missing: " + engineJar + ". Rebuild or restore the complete LightningRecaf folder.";
+                    if (!owned) {
+                        FailureMessage = "Another LightningRecaf instance is still preparing. Try again shortly.";
                         return;
                     }
 
                     ui.SetStatus("Locating Java...", -1);
-                    int requiredJava = RecafUpdater.RequiredJavaVersion(engineJar);
+                    int requiredJava = EngineRequirements.RequiredJavaVersion(engineJar);
                     JavaInstall java = JavaLocator.Find(config.Get("java", null), requiredJava);
                     if (java == null)
                     {
                         if (Paths.IsPortable) {
-                            FailureMessage = "The bundled Java runtime is missing or cannot run this Recaf version (JDK " + requiredJava + "+ required).\n" +
-                                             "Extract the complete portable ZIP, including its runtime and engine folders.\n" +
-                                             "If a future Latest Recaf needs newer Java, use the bundled LightningRecaf mode or update the portable package.";
+                            FailureMessage = "The bundled Java runtime is missing or cannot run LightningRecaf (JDK " + requiredJava + "+ required).\n" +
+                                             "Download the complete LightningRecaf EXE again, or restore the runtime and engine folders.";
                             return;
                         }
-                        FailureMessage = "Recaf needs a JDK " + requiredJava + " or newer, but none was found.\n" +
+                        FailureMessage = "LightningRecaf needs a JDK " + requiredJava + " or newer, but none was found.\n" +
                                          "Install one (for example Temurin 25), or set 'java=' in:\n" + Paths.ExeConfig;
                         FailureLink = "https://adoptium.net/temurin/releases/?version=25&os=windows&arch=x64&package=jdk";
                         return;
@@ -287,31 +230,24 @@ namespace RecafExe
                     Log.Info("Using Java " + java.Version + " at " + java.Home);
 
                     ui.SetStatus("Checking JavaFX...", -1);
-                    string jfx = options.Custom ? CustomEngine.JavaFxVersion() : JavaFx.Ensure(java.Major, autoUpdate, ui);
+                    string jfx = CustomEngine.JavaFxVersion();
                     if (jfx == null)
                     {
-                        FailureMessage = "JavaFX could not be downloaded and no compatible cached copy exists.\n" +
-                                         "Check your internet connection and try again.";
+                        FailureMessage = "The bundled JavaFX files are missing. Restore the complete LightningRecaf package.";
                         return;
                     }
                     Log.Info("Using JavaFX " + jfx);
 
                     var recafArgs = new List<string>(options.RecafArgs);
-                    if (options.Custom)
-                    {
-                        ui.SetStatus("Preparing LightningRecaf...", -1);
-                        string pluginDir = CustomPlugin.Ensure();
-                        if (pluginDir == null)
-                            throw new IOException("LightningRecaf's plugin is missing from this launcher. Rebuild the complete package.");
-                        else
-                        {
-                            recafArgs.Insert(0, pluginDir);
-                            recafArgs.Insert(0, "-r");
-                        }
-                    }
+                    ui.SetStatus("Preparing LightningRecaf...", -1);
+                    string pluginDir = CustomPlugin.Ensure();
+                    if (pluginDir == null)
+                        throw new IOException("LightningRecaf's plugin is missing from this application. Rebuild the complete package.");
+                    recafArgs.Insert(0, pluginDir);
+                    recafArgs.Insert(0, "-r");
 
-                    ui.SetStatus("Starting Recaf...", -1);
-                    RecafProcess.Start(java, jfx, config.Get("jvm-args", ""), recafArgs, ui, this, options.Custom);
+                    ui.SetStatus("Starting LightningRecaf...", -1);
+                    RecafProcess.Start(java, jfx, config.Get("jvm-args", ""), recafArgs, ui, this);
                 }
                 finally
                 {
@@ -322,7 +258,7 @@ namespace RecafExe
     }
 
     // ------------------------------------------------------------------------------------------------
-    // Custom mode: the LightningRecaf plugin embedded in this exe
+    // LightningRecaf plugin embedded in this executable
     // ------------------------------------------------------------------------------------------------
 
     static class CustomPlugin
@@ -380,34 +316,19 @@ namespace RecafExe
         public static bool IsPortable { get { return File.Exists(Path.Combine(ApplicationDirectory, "LightningRecaf.portable")); } }
         public static bool IsStandalone { get { return IsPortable && File.Exists(Path.Combine(ApplicationDirectory, "LightningRecaf.standalone")); } }
         public static string RuntimeDirectory { get { return Path.Combine(ApplicationDirectory, "runtime"); } }
-        public static readonly string RecafDir = ResolveRecafDir();
+        public static string RecafDir { get { return CustomDataDir; } }
         public static string LightningDir { get {
-            if (IsStandalone) return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LightningRecaf", "data");
-            return IsPortable ? Path.Combine(ApplicationDirectory, "data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LightningRecaf");
+            return AppUpdates.DataDirectory(IsStandalone
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LightningRecaf", "data")
+                : IsPortable ? Path.Combine(ApplicationDirectory, "data") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LightningRecaf"));
         } }
         public static string CustomDataDir { get { return Path.Combine(LightningDir, "custom"); } }
         public static string LauncherDir { get { return Path.Combine(LightningDir, "launcher"); } }
-        public static string DependenciesDir { get { return Path.Combine(RecafDir, "dependencies"); } }
-        public static string RecafJar { get { return Path.Combine(RecafDir, "recaf.jar"); } }
-        public static string RecafTempJar { get { return Path.Combine(RecafDir, "recaf-update-tmp"); } }
-        public static string RecafDownloadZip { get { return Path.Combine(RecafDir, "recaf-update-download.zip"); } }
-        public static string WorkflowIdFile { get { return Path.Combine(LauncherDir, "installed-workflow-id.txt"); } }
-        public static string GuiLauncherConfig { get { return Path.Combine(LauncherDir, "config-gui.json"); } }
         public static string ExeConfig { get { return Path.Combine(LauncherDir, "recaf-exe.ini"); } }
         public static string ExeLog { get { return Path.Combine(LauncherDir, "recaf-exe-log.txt"); } }
         public static string RecafOutputLog { get { return Path.Combine(LauncherDir, "recaf-exe-output.txt"); } }
-        public static string JfxCheckStamp { get { return Path.Combine(LauncherDir, "recaf-exe-jfx-check.txt"); } }
         public static string CustomPluginsDir { get { return Path.Combine(LauncherDir, "custom", "plugins"); } }
-        public static string CustomPluginJar { get { return Path.Combine(CustomPluginsDir, "recaf-enhanced.jar"); } }
 
-        static string ResolveRecafDir()
-        {
-            if (IsPortable) return Path.Combine(LightningDir, "latest");
-            // Same override the official launcher honours.
-            string env = Environment.GetEnvironmentVariable("RECAF");
-            if (!string.IsNullOrEmpty(env)) return env;
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Recaf");
-        }
     }
 
     static class CustomEngine
@@ -464,22 +385,15 @@ namespace RecafExe
         const string DefaultContent =
             "# LightningRecaf.exe settings. Remove the leading '#' to enable a line.\r\n" +
             "#\r\n" +
-            "# Java to run Recaf with (javaw.exe, java.exe, or a JDK folder). Empty = auto-detect.\r\n" +
+            "# Java to run LightningRecaf with (javaw.exe, java.exe, or a JDK folder). Empty = auto-detect.\r\n" +
             "#java=\r\n" +
             "# Portable packages always use their bundled runtime.\r\n" +
             "#\r\n" +
             "# Extra JVM arguments, for example more memory.\r\n" +
             "#jvm-args=-Xmx4G\r\n" +
             "#\r\n" +
-            "# Check for Recaf / JavaFX updates on every launch.\r\n" +
+            "# Download new LightningRecaf releases in the background; use them on the next launch.\r\n" +
             "#auto-update=true\r\n" +
-            "#\r\n" +
-            "# Recaf branch to pull snapshot builds from.\r\n" +
-            "#branch=master\r\n" +
-            "#\r\n" +
-            "# Which Recaf to start: ask | latest | custom (custom = Recaf + the LightningRecaf plugin).\r\n" +
-            "# The chooser also sets this when 'Remember my choice' is ticked. Hold Shift or pass --ask to choose again.\r\n" +
-            "#mode=ask\r\n" +
             "#\r\n" +
             "# Windows integration (portable packages require an explicit --install).\r\n" +
             "# Run 'LightningRecaf.exe --uninstall' to remove integration again.\r\n" +
@@ -597,49 +511,6 @@ namespace RecafExe
         void SetStatus(string text, double fraction);
     }
 
-    static class Http
-    {
-        const string UserAgent = "Recaf-Exe-Launcher/1.0";
-
-        static HttpWebRequest Create(string url, int timeoutMs, string accept)
-        {
-            var req = (HttpWebRequest)WebRequest.Create(url);
-            req.UserAgent = UserAgent;
-            req.Accept = accept;
-            req.Timeout = timeoutMs;
-            req.ReadWriteTimeout = Math.Max(timeoutMs, 30000);
-            req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-            req.AllowAutoRedirect = true;
-            return req;
-        }
-
-        public static string GetText(string url, int timeoutMs, string accept)
-        {
-            using (var resp = (HttpWebResponse)Create(url, timeoutMs, accept).GetResponse())
-            using (var reader = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
-                return reader.ReadToEnd();
-        }
-
-        public static void Download(string url, string dest, Action<long, long> progress)
-        {
-            using (var resp = (HttpWebResponse)Create(url, 20000, "*/*").GetResponse())
-            using (var input = resp.GetResponseStream())
-            using (var output = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                long total = resp.ContentLength;
-                long done = 0;
-                var buffer = new byte[81920];
-                int read;
-                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    output.Write(buffer, 0, read);
-                    done += read;
-                    if (progress != null) progress(done, total);
-                }
-            }
-        }
-    }
-
     static class Json
     {
         public static object Parse(string text)
@@ -707,108 +578,12 @@ namespace RecafExe
     }
 
     // ------------------------------------------------------------------------------------------------
-    // Recaf snapshot updates (mirrors software.coley.recaf.launcher.task.RecafTasks.updateFromSnapshot)
+    // Bundled engine Java requirement.
     // ------------------------------------------------------------------------------------------------
 
-    static class RecafUpdater
+    static class EngineRequirements
     {
-        const long RecafRepoId = 98499283;
-        const string ArtifactsApi = "https://api.github.com/repos/Col-E/Recaf/actions/artifacts?per_page=60";
-        const string BuildConfigEntry = "software/coley/recaf/RecafBuildConfig.class";
-
-        public static void Update(string branch, IProgressSink ui)
-        {
-            object root = Json.Parse(Http.GetText(ArtifactsApi, 10000, "application/vnd.github+json"));
-
-            long runId = -1;
-            foreach (object artifact in Json.Array(root, "artifacts"))
-            {
-                if (Json.Bool(artifact, "expired", false)) continue;
-                if (Json.Str(artifact, "name", "?") != "snapshot-build") continue;
-                object run = Json.Get(artifact, "workflow_run");
-                if (run == null) continue;
-                if (branch != null && Json.Str(run, "head_branch", "?") != branch) continue;
-                // Only builds made from the main repository itself, never from forks / PRs.
-                if (Json.Long(run, "repository_id", 0) != RecafRepoId) continue;
-                if (Json.Long(run, "head_repository_id", -1) != RecafRepoId) continue;
-                if (Json.Long(artifact, "size_in_bytes", -1) <= 0) continue;
-                runId = Json.Long(run, "id", -1);
-                if (runId > 0) break;
-            }
-            if (runId <= 0)
-            {
-                Log.Info("No Recaf snapshot build found for branch '" + branch + "'");
-                return;
-            }
-
-            string installed = "";
-            try { if (File.Exists(Paths.WorkflowIdFile)) installed = File.ReadAllText(Paths.WorkflowIdFile).Trim(); }
-            catch { }
-            if (File.Exists(Paths.RecafJar) && installed.EndsWith(runId.ToString()))
-            {
-                Log.Info("Recaf is up to date (workflow run " + runId + ")");
-                return;
-            }
-
-            Log.Info("Updating Recaf: installed run '" + installed + "' -> " + runId);
-            string url = "https://nightly.link/Col-E/Recaf/actions/runs/" + runId + "/snapshot-build.zip";
-            ui.SetStatus("Downloading Recaf update...", 0);
-            try
-            {
-                Http.Download(url, Paths.RecafDownloadZip, delegate(long done, long total)
-                {
-                    ui.SetStatus("Downloading Recaf update... " + FormatSize(done) + (total > 0 ? " / " + FormatSize(total) : ""),
-                        total > 0 ? (double)done / total : -1);
-                });
-
-                ui.SetStatus("Installing Recaf update...", -1);
-                using (var zipStream = File.OpenRead(Paths.RecafDownloadZip))
-                using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Read))
-                {
-                    var entry = zip.Entries.FirstOrDefault(e => e.FullName.ToLowerInvariant().EndsWith(".jar"));
-                    if (entry == null) throw new IOException("Snapshot archive did not contain a jar");
-                    using (var src = entry.Open())
-                    using (var dst = new FileStream(Paths.RecafTempJar, FileMode.Create, FileAccess.Write))
-                        src.CopyTo(dst);
-                }
-
-                if (!IsRecafJar(Paths.RecafTempJar))
-                    throw new IOException("Downloaded jar is not a Recaf 4 build");
-
-                try
-                {
-                    FileUtil.Replace(Paths.RecafTempJar, Paths.RecafJar);
-                }
-                catch (IOException e)
-                {
-                    // Most likely another Recaf instance has recaf.jar open. Keep the old one; retry next launch.
-                    Log.Error("Could not replace recaf.jar (is Recaf already running?)", e);
-                    return;
-                }
-                File.WriteAllText(Paths.WorkflowIdFile, runId.ToString());
-                Log.Info("Recaf updated to workflow run " + runId);
-            }
-            finally
-            {
-                FileUtil.TryDelete(Paths.RecafDownloadZip);
-                FileUtil.TryDelete(Paths.RecafTempJar);
-            }
-        }
-
-        static bool IsRecafJar(string path)
-        {
-            try
-            {
-                using (var zip = OpenZip(path))
-                    return zip.GetEntry(BuildConfigEntry) != null;
-            }
-            catch { return false; }
-        }
-
-        static ZipArchive OpenZip(string path)
-        {
-            return new ZipArchive(File.OpenRead(path), ZipArchiveMode.Read, false);
-        }
+        static ZipArchive OpenZip(string path) { return new ZipArchive(File.OpenRead(path), ZipArchiveMode.Read, false); }
 
         // Java version needed by the installed Recaf, from the class file version of its main class.
         public static int RequiredJavaVersion(string jar)
@@ -838,193 +613,7 @@ namespace RecafExe
             return 22;
         }
 
-        static string FormatSize(long bytes)
-        {
-            return (bytes / 1048576.0).ToString("0.0") + " MB";
-        }
     }
-
-    // ------------------------------------------------------------------------------------------------
-    // JavaFX (mirrors software.coley.recaf.launcher.task.JavaFxTasks)
-    // ------------------------------------------------------------------------------------------------
-
-    class FxVersion : IComparable<FxVersion>
-    {
-        public readonly string Text;
-        public readonly int[] Numbers;
-        public readonly bool PreRelease;
-        public readonly int Build;
-
-        FxVersion(string text, int[] numbers, bool pre, int build)
-        {
-            Text = text;
-            Numbers = numbers;
-            PreRelease = pre;
-            Build = build;
-        }
-
-        public int Major { get { return Numbers[0]; } }
-
-        // Matches the launcher's map: JavaFX < 23 needs JDK 17, 23-24 need JDK 21, 25+ is not used by Recaf yet.
-        public int RequiredJava { get { return Major >= 25 ? int.MaxValue : Major >= 23 ? 21 : 17; } }
-
-        public static FxVersion Parse(string text)
-        {
-            var m = Regex.Match(text, @"^(\d+(?:\.\d+)*)(?:-(ea|snapshot)(?:\+(\d+))?)?$", RegexOptions.IgnoreCase);
-            if (!m.Success) return null;
-            int[] nums = m.Groups[1].Value.Split('.').Select(int.Parse).ToArray();
-            bool pre = m.Groups[2].Success;
-            int build = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
-            return new FxVersion(text, nums, pre, build);
-        }
-
-        public int CompareTo(FxVersion other)
-        {
-            int len = Math.Max(Numbers.Length, other.Numbers.Length);
-            for (int i = 0; i < len; i++)
-            {
-                int a = i < Numbers.Length ? Numbers[i] : 0;
-                int b = i < other.Numbers.Length ? other.Numbers[i] : 0;
-                if (a != b) return a.CompareTo(b);
-            }
-            if (PreRelease != other.PreRelease) return PreRelease ? -1 : 1; // 24.0.2 > 24.0.2-ea+1
-            return Build.CompareTo(other.Build);
-        }
-
-        public override string ToString() { return Text; }
-    }
-
-    static class JavaFx
-    {
-        static readonly string[] Artifacts = { "javafx-base", "javafx-graphics", "javafx-controls", "javafx-media" };
-        const string Classifier = "win";
-        const string MetadataUrl = "https://repo1.maven.org/maven2/org/openjfx/javafx-base/maven-metadata.xml";
-        const int MinimumMajor = 21; // Recaf rejects older JavaFX
-
-        public static string JarPath(string artifact, string version)
-        {
-            return Path.Combine(Paths.DependenciesDir, artifact + "-" + version + "-" + Classifier + ".jar");
-        }
-
-        // Returns the JavaFX version to run with, or null if none is usable.
-        public static string Ensure(int javaMajor, bool allowUpdate, IProgressSink ui)
-        {
-            FxVersion cached = DetectCached(javaMajor);
-            if (!allowUpdate) return cached == null ? null : cached.Text;
-
-            bool checkedRecently = false;
-            try { checkedRecently = File.Exists(Paths.JfxCheckStamp) && (DateTime.Now - File.GetLastWriteTime(Paths.JfxCheckStamp)).TotalHours < 24; }
-            catch { }
-            if (cached != null && checkedRecently)
-            {
-                Log.Info("JavaFX " + cached + " cached, remote check skipped (checked within 24h)");
-                return cached.Text;
-            }
-
-            try
-            {
-                FxVersion latest = LatestRemote(javaMajor);
-                FxVersion result = cached;
-                if (latest != null && (cached == null || latest.CompareTo(cached) > 0))
-                {
-                    Log.Info("Updating JavaFX " + (cached == null ? "(none)" : cached.Text) + " -> " + latest);
-                    Download(latest, ui);
-                    result = latest;
-                }
-                File.WriteAllText(Paths.JfxCheckStamp, DateTime.Now.ToString("o"));
-                if (result != null) return result.Text;
-            }
-            catch (Exception e)
-            {
-                Log.Error("JavaFX update failed", e);
-            }
-            return cached == null ? null : cached.Text;
-        }
-
-        static FxVersion DetectCached(int javaMajor)
-        {
-            if (!Directory.Exists(Paths.DependenciesDir)) return null;
-            var found = new Dictionary<string, HashSet<string>>();
-            var pattern = new Regex(@"^(javafx-[a-z]+)-(.+)-" + Regex.Escape(Classifier) + @"\.jar$", RegexOptions.IgnoreCase);
-            foreach (var file in Directory.GetFiles(Paths.DependenciesDir, "javafx-*.jar"))
-            {
-                var m = pattern.Match(Path.GetFileName(file));
-                if (!m.Success) continue;
-                HashSet<string> set;
-                if (!found.TryGetValue(m.Groups[2].Value, out set)) found[m.Groups[2].Value] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                set.Add(m.Groups[1].Value);
-            }
-            return found.Where(kv => Artifacts.All(kv.Value.Contains))
-                .Select(kv => FxVersion.Parse(kv.Key))
-                .Where(v => v != null && v.Major >= MinimumMajor && v.RequiredJava <= javaMajor)
-                .OrderByDescending(v => v)
-                .FirstOrDefault();
-        }
-
-        static FxVersion LatestRemote(int javaMajor)
-        {
-            var doc = new XmlDocument();
-            doc.LoadXml(Http.GetText(MetadataUrl, 10000, "application/xml"));
-            var compatible = doc.SelectNodes("/metadata/versioning/versions/version").Cast<XmlNode>()
-                .Select(n => FxVersion.Parse(n.InnerText.Trim()))
-                .Where(v => v != null && v.Major >= MinimumMajor && v.RequiredJava <= javaMajor)
-                .ToList();
-            // Prefer proper releases; only fall back to early-access builds if nothing else fits.
-            var stable = compatible.Where(v => !v.PreRelease).ToList();
-            return (stable.Count > 0 ? stable : compatible).OrderByDescending(v => v).FirstOrDefault();
-        }
-
-        static void Download(FxVersion version, IProgressSink ui)
-        {
-            Directory.CreateDirectory(Paths.DependenciesDir);
-            var temps = new List<KeyValuePair<string, string>>();
-            try
-            {
-                for (int i = 0; i < Artifacts.Length; i++)
-                {
-                    string artifact = Artifacts[i];
-                    string name = artifact + "-" + version.Text + "-" + Classifier + ".jar";
-                    string url = "https://repo1.maven.org/maven2/org/openjfx/" + artifact + "/" + version.Text + "/" + name;
-                    string dest = JarPath(artifact, version.Text);
-                    string tmp = dest + ".tmp";
-                    temps.Add(new KeyValuePair<string, string>(tmp, dest));
-
-                    string expected = Http.GetText(url + ".sha1", 10000, "*/*").Trim().Split(' ', '\t', '\r', '\n')[0].ToLowerInvariant();
-                    int index = i;
-                    for (int attempt = 1; ; attempt++)
-                    {
-                        Http.Download(url, tmp, delegate(long done, long total)
-                        {
-                            double part = total > 0 ? (double)done / total : 0;
-                            ui.SetStatus("Downloading JavaFX " + version + " (" + (index + 1) + "/" + Artifacts.Length + ")...",
-                                (index + part) / Artifacts.Length);
-                        });
-                        string actual = Sha1(tmp);
-                        if (actual == expected) break;
-                        Log.Info("SHA-1 mismatch for " + name + " (expected " + expected + ", got " + actual + "), attempt " + attempt);
-                        if (attempt >= 3) throw new IOException("SHA-1 mismatch downloading " + name);
-                    }
-                }
-                // Only publish the new version once every artifact verified, so a partial download is never picked up.
-                foreach (var t in temps) FileUtil.Replace(t.Key, t.Value);
-            }
-            finally
-            {
-                foreach (var t in temps) FileUtil.TryDelete(t.Key);
-            }
-        }
-
-        static string Sha1(string path)
-        {
-            using (var sha = SHA1.Create())
-            using (var s = File.OpenRead(path))
-                return BitConverter.ToString(sha.ComputeHash(s)).Replace("-", "").ToLowerInvariant();
-        }
-    }
-
-    // ------------------------------------------------------------------------------------------------
-    // Java discovery
-    // ------------------------------------------------------------------------------------------------
 
     class JavaInstall
     {
@@ -1055,15 +644,7 @@ namespace RecafExe
                 Log.Info("Configured java '" + configured + "' is not usable (needs JDK " + requiredMajor + "+), auto-detecting");
             }
 
-            // 2. Java previously picked in the official launcher
-            string fromLauncher = ReadGuiLauncherJava();
-            if (fromLauncher != null)
-            {
-                var j = Probe(ToHome(fromLauncher));
-                if (j != null && j.IsJdk && j.Major >= requiredMajor) return j;
-            }
-
-            // 3. Newest suitable JDK on the machine
+            // Newest suitable JDK on the machine.
             var all = Candidates().Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(Probe).Where(j => j != null).ToList();
             foreach (var j in all) Log.Info("Found Java " + j.Version + (j.IsJdk ? " (JDK) " : " (JRE) ") + j.Home);
@@ -1080,16 +661,6 @@ namespace RecafExe
             if (Path.GetFileName(path.TrimEnd('\\', '/')).Equals("bin", StringComparison.OrdinalIgnoreCase))
                 path = Path.GetDirectoryName(path.TrimEnd('\\', '/'));
             return path;
-        }
-
-        static string ReadGuiLauncherJava()
-        {
-            try
-            {
-                if (!File.Exists(Paths.GuiLauncherConfig)) return null;
-                return Json.Str(Json.Parse(File.ReadAllText(Paths.GuiLauncherConfig)), "java", null);
-            }
-            catch { return null; }
         }
 
         static JavaInstall Probe(string home)
@@ -1200,22 +771,20 @@ namespace RecafExe
         const string MainClass = "software.coley.recaf.Main";
 
         internal static string BuildCommandLine(JavaInstall java, string jfxVersion, string jvmArgs,
-                                                List<string> recafArgs, bool custom)
+                                                List<string> recafArgs)
         {
             var classpath = new List<string>();
-            if (custom && File.Exists(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-patches.jar")))
-                classpath.Add(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-patches.jar"));
-            if (custom && File.Exists(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-branding.jar")))
-                classpath.Add(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-branding.jar"));
-            classpath.Add(custom ? CustomEngine.Jar : Paths.RecafJar);
+            classpath.Add(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-patches.jar"));
+            classpath.Add(Path.Combine(CustomEngine.DirectoryPath, "LightningRecaf-branding.jar"));
+            classpath.Add(CustomEngine.Jar);
             classpath.AddRange(new[] { "javafx-base", "javafx-graphics", "javafx-controls", "javafx-media" }
-                .Select(a => custom ? CustomEngine.Dependency(a, jfxVersion) : JavaFx.JarPath(a, jfxVersion)));
+                .Select(a => CustomEngine.Dependency(a, jfxVersion)));
 
             var sb = new StringBuilder();
             sb.Append(Native.Quote(java.JavaExe));
             if (!string.IsNullOrEmpty(jvmArgs)) sb.Append(' ').Append(jvmArgs);
             sb.Append(" --enable-native-access=ALL-UNNAMED");
-            if (custom || Paths.IsPortable) sb.Append(' ').Append(Native.Quote("-DRECAF_DIR=" + (custom ? Paths.CustomDataDir : Paths.RecafDir)));
+            sb.Append(' ').Append(Native.Quote("-DRECAF_DIR=" + Paths.CustomDataDir));
             if (Paths.IsPortable) {
                 sb.Append(' ').Append(Native.Quote("-Djava.io.tmpdir=" + Path.Combine(Paths.LightningDir, "temp")));
                 sb.Append(' ').Append(Native.Quote("-Djavafx.cachedir=" + Path.Combine(Paths.LightningDir, "cache", "javafx")));
@@ -1227,10 +796,10 @@ namespace RecafExe
         }
 
         public static void Start(JavaInstall java, string jfxVersion, string jvmArgs, List<string> recafArgs,
-                                 IProgressSink ui, LaunchWorker worker, bool custom)
+                                 IProgressSink ui, LaunchWorker worker)
         {
             if (Paths.IsPortable) Directory.CreateDirectory(Path.Combine(Paths.LightningDir, "temp"));
-            string commandLine = BuildCommandLine(java, jfxVersion, jvmArgs, recafArgs, custom);
+            string commandLine = BuildCommandLine(java, jfxVersion, jvmArgs, recafArgs);
             Log.Info("Command line: " + commandLine);
 
             // The console is hidden, so stdout/stderr go to a file; startup errors are shown from it.

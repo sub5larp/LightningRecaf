@@ -9,13 +9,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using LightningRecaf.Updates;
 
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 [assembly: AssemblyTitle("LightningRecaf")]
 [assembly: AssemblyProduct("LightningRecaf")]
 [assembly: AssemblyDescription("LightningRecaf standalone Windows application")]
-[assembly: AssemblyVersion("2.3.5.0")]
-[assembly: AssemblyFileVersion("2.3.5.0")]
+[assembly: AssemblyVersion("2.4.0.0")]
+[assembly: AssemblyFileVersion("2.4.0.0")]
 
 namespace LightningRecaf.Standalone
 {
@@ -136,11 +137,11 @@ namespace LightningRecaf.Standalone
             return result.Append('\\', slashes * 2).Append('"').ToString();
         }
         internal static ProcessStartInfo LaunchInfo(string root, string[] args) {
-            var quoted = new List<string>();
-            foreach (string arg in args) quoted.Add(Quote(arg));
-            return new ProcessStartInfo(Path.Combine(root, "LightningRecaf.exe"), string.Join(" ", quoted.ToArray())) {
-                UseShellExecute = false, WorkingDirectory = Environment.CurrentDirectory
-            };
+            return AppUpdates.StartInfo(Path.Combine(root, "LightningRecaf.exe"),
+                DataDirectory(), AppUpdates.EntryExecutable(Application.ExecutablePath), args);
+        }
+        static string DataDirectory() {
+            return AppUpdates.DataDirectory(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LightningRecaf", "data"));
         }
         [STAThread]
         static int Main(string[] args) {
@@ -154,12 +155,16 @@ namespace LightningRecaf.Standalone
                     EnsurePackage(args[1], false, delegate(int percent) { });
                     return 0;
                 }
-                string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LightningRecaf", "app", TextResource("package.sha256").Substring(0, 20));
+                string data = DataDirectory();
+                if (AppUpdates.TryLaunchReady(data, AppUpdates.CurrentVersion, AppUpdates.EntryExecutable(Application.ExecutablePath), args)) return 0;
+                string cacheRoot = AppUpdates.HasDataOverride ? Path.Combine(data, "updates", "app")
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LightningRecaf", "app");
+                string cache = Path.Combine(cacheRoot, TextResource("package.sha256").Substring(0, 20));
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Exception failure = null;
                 using (var form = new Form()) {
-                    form.Text = "LightningRecaf";
+                    form.Text = "LightningRecaf - " + AppUpdates.CurrentVersion.ToString(3);
                     form.ClientSize = new Size(390, 104);
                     form.FormBorderStyle = FormBorderStyle.FixedDialog;
                     form.StartPosition = FormStartPosition.CenterScreen;

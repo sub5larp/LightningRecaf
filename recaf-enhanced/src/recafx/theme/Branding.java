@@ -8,7 +8,7 @@ import javafx.stage.Stage;
 
 /** Product identity without removing upstream license or contributor attribution. */
 public final class Branding {
-    public static final String VERSION = "2.3.5";
+    public static final String VERSION = "2.4.0";
     public static final String TITLE = "LightningRecaf - " + VERSION;
     private Branding() {}
     public static void install(Stage main) {

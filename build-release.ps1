@@ -1,5 +1,5 @@
 param(
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist\LightningRecaf-2.3.5'),
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist\LightningRecaf-2.4.0'),
     [string]$WorkDirectory = (Join-Path $PSScriptRoot 'build\release'),
     [string]$DownloadsDirectory = (Join-Path $PSScriptRoot 'build\downloads')
 )
@@ -88,7 +88,7 @@ $digest = Join-Path $work 'package.sha256'
 New-Item -ItemType Directory -Path $destination | Out-Null
 $exe = Join-Path $destination 'LightningRecaf.exe'
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
-& (Join-Path $framework 'csc.exe') /nologo /target:winexe /platform:x64 /optimize+ "/out:$exe" "/win32icon:$(Join-Path $project 'recaf-exe\assets\lightning.ico')" "/win32manifest:$(Join-Path $project 'recaf-exe\app.manifest')" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll "/r:$framework\System.IO.Compression.dll" "/resource:$payload,package.zip" "/resource:$manifest,package.manifest" "/resource:$digest,package.sha256" (Join-Path $project 'standalone\Bootstrap.cs')
+& (Join-Path $framework 'csc.exe') /nologo /target:winexe /platform:x64 /optimize+ "/out:$exe" "/win32icon:$(Join-Path $project 'recaf-exe\assets\lightning.ico')" "/win32manifest:$(Join-Path $project 'recaf-exe\app.manifest')" /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll "/r:$framework\System.Web.Extensions.dll" "/r:$framework\System.IO.Compression.dll" "/resource:$payload,package.zip" "/resource:$manifest,package.manifest" "/resource:$digest,package.sha256" (Join-Path $project 'standalone\Bootstrap.cs') (Join-Path $project 'recaf-exe\Updates.cs')
 if ($LASTEXITCODE) { throw 'Standalone EXE compilation failed' }
 New-LightningZip $source (Join-Path $destination 'LightningRecaf-source.zip')
 Get-ChildItem -LiteralPath $destination -File | ForEach-Object {
